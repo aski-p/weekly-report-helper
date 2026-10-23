@@ -1,5 +1,6 @@
 // Mounted by the private PGX server. Connections and ticket verification stay private.
 import { readFile } from 'node:fs/promises';
+import { createWorkspaceApi } from './workspace.js';
 import { transcriptText } from '../shared/speakers.js';
 const ID = /^[A-Za-z0-9_-]{4,40}$/;
 const invalid = (message, status = 400, code = 'BAD_REQUEST') => Object.assign(new Error(message), { status, code });
@@ -62,11 +63,13 @@ async function bodyOf(req) {
 }
 const send = (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)); };
 export function createDataApi({ pool, verifyTicket }) {
+  const workspace = createWorkspaceApi({ pool, readJson: bodyOf, send });
   return async (req, res, url, kind) => {
     try {
       const claims = verifyTicket(req.headers['x-wr-ticket']);
-      if (!claims) throw invalid('다시 로그인하세요', 401, 'UNAUTHORIZED');
+      if (!claims || claims.purpose) throw invalid('다시 로그인하세요', 401, 'UNAUTHORIZED');
       const owner = String(claims.sub);
+      if (kind === 'workspace') return await workspace(req, res, url, owner);
       const isMeeting = kind === 'meetings';
       if (!isMeeting && kind !== 'templates') throw invalid('없는 저장소입니다', 404);
       if (req.method === 'GET') {
@@ -137,7 +140,7 @@ export function createDataApi({ pool, verifyTicket }) {
       } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
       return send(res, 200, { items: saved });
     } catch (e) {
-      if (!e.status) console.error('personal data API', e.code || e.message);
+      if (!e.status) console.error('personal data API', e.code || 'INTERNAL_ERROR');
       send(res, e.status || 500, { code: e.status ? e.code : 'ERROR', message: e.status ? e.message : '저장소 오류가 발생했습니다' });
     }
   };

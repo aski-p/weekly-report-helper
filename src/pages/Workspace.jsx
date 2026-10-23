@@ -11,6 +11,8 @@ import ChatWidget from './Chat.jsx';
 import { chat, roomTitle, useTotalUnread } from '../chat.js';
 import { notify } from '../useAutomation.js';
 import { useMeetings } from '../meetings.js';
+import AIConnection from '../components/AIConnection.jsx';
+import SyncStatus from '../components/SyncStatus.jsx';
 import { useTemplates } from '../templates.js';
 import { useAutomation } from '../useAutomation.js';
 
@@ -68,6 +70,17 @@ export default function Workspace({ me, onLogout, onInstall }) {
     api.context(sel.year, sel.week).then(setCtx).catch((e) => toast(errorText(e)));
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const sync=(e)=>{
+      const keys=e.detail||[];
+      if(key&&keys.includes(`wr.memo.${key}`))setMemo(store.get(`wr.memo.${key}`)||'');
+      if(key&&keys.includes(`wr.draft.${key}`))setDraft(readJSON(`wr.draft.${key}`,null));
+      if(key&&keys.includes(`wr.approval.${key}`))setApproval(readJSON(`wr.approval.${key}`,null));
+      if(keys.includes(`wr.writeTpl.${me.employeeId}`))setTplIdRaw(store.get(`wr.writeTpl.${me.employeeId}`)||'');
+    };
+    addEventListener('wr:account-sync',sync);return()=>removeEventListener('wr:account-sync',sync);
+  },[key,me.employeeId]);
+
   // 회의록에서 메모에 한 줄을 넣으면 다시 읽는다
   useEffect(() => {
     const on = (e) => { if (key && e.detail === `wr.memo.${key}`) setMemo(store.get(`wr.memo.${key}`) || ''); };
@@ -92,6 +105,8 @@ export default function Workspace({ me, onLogout, onInstall }) {
   const [tplId, setTplIdRaw] = useState(() => store.get(`wr.writeTpl.${me.employeeId}`) || '');
   const setTplId = (v) => { setTplIdRaw(v); store.set(`wr.writeTpl.${me.employeeId}`, v || null); };
   const template = templates.find((t) => t.id === tplId) || null;
+
+  useEffect(()=>{const on=(e)=>setCtx((ctx)=>ctx?{...ctx,aiReady:e.detail.available}:ctx);addEventListener('wr:ai-connection',on);return()=>removeEventListener('wr:ai-connection',on);},[]);
 
   // AI 정리
   const [drafting, setDrafting] = useState(false);
@@ -249,6 +264,7 @@ export default function Workspace({ me, onLogout, onInstall }) {
         </div>
       )}
 
+      <div className="connection-bar"><SyncStatus /><AIConnection accountId={me.employeeId} /></div>
       {view === 'view' && <ReportView me={me} weeks={weeks} sel={sel} setSel={setSel} />}
       {view === 'templates' && <Templates me={me} running={autoRunning} onRunNow={runNow} />}
       {/* 녹음이 탭을 옮겨도 이어지도록 회의록 화면은 늘 붙여 둔다 */}
@@ -273,13 +289,13 @@ export default function Workspace({ me, onLogout, onInstall }) {
         <section className="pane memo-pane" aria-labelledby="memo-h">
           <div className="pane-head">
             <h2 id="memo-h">이번 주 메모</h2>
-            <span className="saved">{savedAt && memo ? '기기에 저장됨' : ''}</span>
+            <span className="saved">{savedAt && memo ? '자동 저장' : ''}</span>
           </div>
           <div className="notepad">
             <textarea
               ref={memoRef}
               value={memo}
-              onChange={(e) => setMemo(e.target.value)}
+              onChange={(e) => { setMemo(e.target.value); if(key)store.set(`wr.memo.${key}`,e.target.value); }}
               onKeyDown={onMemoKey}
               spellCheck={false}
               placeholder={'한 일을 생각나는 대로 적으세요. 형식은 정리해 드립니다.\n\n기업은행 퇴직연금 화면 수정 3건 배포\n금요일 통합테스트 결함 2건 대응\n군인라운지 파일 업로드 안 되는 원인 찾음, 다음 주 수정\n화요일 고객사 회의 있음'}

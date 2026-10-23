@@ -1,4 +1,4 @@
-// 양식은 PGX DB에, 기기별 자동화 설정은 이 기기에 저장한다.
+// 양식과 자동화 설정은 계정 DB에 동기화하고, 기기에는 오프라인 사본을 둔다.
 import { useCallback, useEffect, useState } from 'react';
 import { store } from './api.js';
 import { useRemoteRecords } from './useRemoteRecords.js';
@@ -15,8 +15,8 @@ export function useTemplates(employeeId) {
   const [auto, setA] = useState(() => ({ ...DEFAULT_AUTO, ...read(aKey, {}) }));
   useEffect(() => {
     const sync = () => setA({ ...DEFAULT_AUTO, ...read(aKey, {}) });
-    addEventListener(EVT, sync); addEventListener('storage', sync);
-    return () => { removeEventListener(EVT, sync); removeEventListener('storage', sync); };
+    addEventListener(EVT, sync); addEventListener('storage', sync); addEventListener('wr:account-sync',sync);
+    return () => { removeEventListener(EVT, sync); removeEventListener('storage', sync); removeEventListener('wr:account-sync',sync); };
   }, [aKey]);
   const addTemplate = useCallback(async (t) => {
     const item = add({ ...t, id: t.id || crypto.randomUUID(), createdAt: t.createdAt || Date.now(), updatedAt: Date.now() });

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { registerSW } from 'virtual:pwa-register';
 import { api, hasToken, onUnauthorized } from './api.js';
 import Login from './pages/Login.jsx';
 import Workspace from './pages/Workspace.jsx';
 import Install from './pages/Install.jsx';
 import { ToastHost, toast } from './components/Toast.jsx';
+import { startAccountSync, stopAccountSync } from './account-sync.js';
 import { chat } from './chat.js';
 import { isRecording } from './meetings.js';
 
@@ -25,6 +26,13 @@ export default function App() {
   const [me, setMe] = useState(null);
   const [booting, setBooting] = useState(hasToken());
   const [update, setUpdate] = useState(null);
+  const loginEpoch = useRef(0);
+  const enter = async (account) => {
+    const epoch=++loginEpoch.current;
+    setBooting(true);
+    try { await startAccountSync(account.employeeId); if(epoch===loginEpoch.current)setMe(account); }
+    finally { if(epoch===loginEpoch.current)setBooting(false); }
+  };
 
   // 새 버전은 서비스 워커가 받자마자 바로 넘겨받는다(skipWaiting).
   // 화면은 앱을 다시 열거나 다른 앱에서 돌아올 때 새로 불러온다. 녹음 중이면 끝날 때까지 미룬다.
@@ -61,18 +69,18 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => onUnauthorized(() => { chat.stop(); setMe(null); toast('로그인이 만료되었습니다. 다시 로그인하세요.'); }), []);
+  useEffect(() => onUnauthorized(() => { loginEpoch.current++; stopAccountSync(); chat.stop(); setMe(null); toast('로그인이 만료되었습니다. 다시 로그인하세요.'); }), []);
 
   useEffect(() => {
     if (!hasToken()) return;
-    api.me().then(setMe).catch(() => {}).finally(() => setBooting(false));
+    api.me().then(enter).catch(() => {}).finally(() => setBooting(false));
   }, []);
 
   let page;
   if (path.startsWith('/install')) page = <Install onBack={() => go('/')} />;
   else if (booting) page = <div className="boot" aria-busy="true" />;
-  else if (!me) page = <Login onLogin={setMe} onInstall={() => go('/install')} />;
-  else page = <Workspace me={me} onLogout={async () => { chat.stop(); await api.logout().catch(() => {}); setMe(null); }} onInstall={() => go('/install')} />;
+  else if (!me) page = <Login onLogin={enter} onInstall={() => go('/install')} />;
+  else page = <Workspace me={me} onLogout={async () => { loginEpoch.current++; stopAccountSync(); chat.stop(); await api.logout().catch(() => {}); setMe(null); }} onInstall={() => go('/install')} />;
 
   return (
     <>

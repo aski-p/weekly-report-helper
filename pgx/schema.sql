@@ -28,3 +28,12 @@ CREATE INDEX IF NOT EXISTS meetings_owner_date ON meetings (owner_id, meeting_da
 ALTER TABLE meetings ADD COLUMN IF NOT EXISTS segments jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE meetings ADD COLUMN IF NOT EXISTS speaker_names jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE meetings ADD COLUMN IF NOT EXISTS speaker_state text NOT NULL DEFAULT '';
+
+CREATE SEQUENCE IF NOT EXISTS workspace_revision;
+CREATE TABLE IF NOT EXISTS workspace_documents (
+  owner_id text NOT NULL, key text NOT NULL, value text,
+  version bigint NOT NULL DEFAULT nextval('workspace_revision'),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (owner_id,key)
+);
+CREATE INDEX IF NOT EXISTS workspace_owner_version ON workspace_documents (owner_id,version);

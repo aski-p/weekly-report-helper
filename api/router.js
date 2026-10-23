@@ -1,4 +1,5 @@
 // Vercel 서버리스 함수: /api/* 요청은 vercel.json 의 rewrite 로 모두 여기로 온다.
+import { SECURITY_HEADERS } from '../lib/security.js';
 import { handle } from '../lib/routes.js';
 
 export default async function handler(req, res) {
@@ -7,16 +8,16 @@ export default async function handler(req, res) {
   const path = '/' + (url.searchParams.get('path') || '').replace(/^\/+/, '');
   url.searchParams.delete('path');
 
-  let body = req.body;
-  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
-
   const { status, data } = await handle({
     method: req.method,
     path,
     headers: req.headers,
-    body,
+    body: req.body,
+    ip: req.headers['x-real-ip'] || req.socket?.remoteAddress || 'unknown',
     query: url.searchParams,
   });
-  res.setHeader('Cache-Control', 'no-store');
+  for(const [key,value] of Object.entries(SECURITY_HEADERS))res.setHeader(key,value);
+  res.setHeader('Cache-Control','no-store, private');
+  if(status===429)res.setHeader('Retry-After','60');
   res.status(status).json(data);
 }

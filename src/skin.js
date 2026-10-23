@@ -1,5 +1,5 @@
 // 스킨(색 컨셉)과 본문 글꼴. 이 기기에 저장하고, 첫 화면을 그리기 전에 적용한다.
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { store } from './api.js';
 
 // 색은 styles.css 의 html[data-skin=…] 에 정의. 여기에는 목록·미리보기용 대표색만.
@@ -85,6 +85,7 @@ export function applySkin({ skin, font } = read()) {
 
 export function useSkin() {
   const [state, setState] = useState(read);
+  useEffect(()=>{const sync=()=>{const next=read();setState(next);applySkin(next);};addEventListener('wr:account-sync',sync);return()=>removeEventListener('wr:account-sync',sync);},[]);
   const set = useCallback((patch) => {
     setState((prev) => {
       const next = { ...prev, ...patch };

@@ -90,6 +90,15 @@ export class ChatClient {
     };
   }
 
+  reconnect() {
+    if (!this.started) return;
+    this.generation++; this.connecting=null; this.retry=0;
+    clearTimeout(this.timer);
+    const ws=this.ws; this.ws=null; ws?.close(1000);
+    for(const w of this.wait.values()){clearTimeout(w.timer);w.no(new Error('연결을 다시 확인하고 있습니다'));}
+    this.wait.clear();this.connect();
+  }
+
   backoff(msg) {
     if (!this.started) return;
     const wait = Math.min(30_000, 1000 * 2 ** this.retry++);

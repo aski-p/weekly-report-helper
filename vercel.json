@@ -1,33 +1,97 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "regions": ["icn1"],
+  "regions": [
+    "icn1"
+  ],
   "functions": {
-    "api/router.js": { "maxDuration": 60 }
+    "api/router.js": {
+      "maxDuration": 60
+    }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/router?path=:path*" },
-    { "source": "/((?!api/|assets/|icons/|download/|sw.js|workbox-|manifest.webmanifest|favicon).*)", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/router?path=:path*"
+    },
+    {
+      "source": "/((?!api/|assets/|icons/|download/|sw.js|recover.js|workbox-|manifest.webmanifest|favicon).*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), geolocation=(), payment=(), microphone=(self)"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; img-src 'self' data: blob:; connect-src 'self' https://*.ts.net wss://*.ts.net; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+        }
+      ]
+    },
+    {
       "source": "/sw.js",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     },
     {
       "source": "/download/(.*)\\.json",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     },
     {
       "source": "/download/(.*)\\.apk",
       "headers": [
-        { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
-        { "key": "Cache-Control", "value": "no-cache" }
+        {
+          "key": "Content-Type",
+          "value": "application/vnd.android.package-archive"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
       ]
     },
     {
       "source": "/.well-known/assetlinks.json",
-      "headers": [{ "key": "Content-Type", "value": "application/json" }]
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json"
+        }
+      ]
     }
   ]
 }

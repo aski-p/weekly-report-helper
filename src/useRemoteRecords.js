@@ -17,6 +17,7 @@ export function useRemoteRecords(kind, employeeId) {
   const state = useSyncExternalStore(s.subscribe, s.get);
   useEffect(() => {
     s.refresh();
+    const poll=setInterval(()=>{if(!document.hidden)s.refresh();},10000);
     const again = () => { if (!document.hidden) s.refresh(); };
     const leaving = () => { s.flush().catch(() => {}); };
     const warn = (e) => { if (s.get().status === 'pending' || s.get().status === 'error') { e.preventDefault(); e.returnValue = ''; } };
@@ -25,7 +26,7 @@ export function useRemoteRecords(kind, employeeId) {
     addEventListener('pagehide', leaving);
     addEventListener('beforeunload', warn);
     document.addEventListener('visibilitychange', again);
-    return () => { leaving(); removeEventListener('online', again); removeEventListener('focus', again); removeEventListener('pagehide', leaving); removeEventListener('beforeunload', warn); document.removeEventListener('visibilitychange', again); };
+    return () => { clearInterval(poll); leaving(); removeEventListener('online', again); removeEventListener('focus', again); removeEventListener('pagehide', leaving); removeEventListener('beforeunload', warn); document.removeEventListener('visibilitychange', again); };
   }, [s]);
   const add = useCallback((item) => { s.change(item.id, item, 0); return item; }, [s]);
   const remove = useCallback((id) => s.change(id, null, 0), [s]);

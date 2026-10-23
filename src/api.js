@@ -1,9 +1,20 @@
 // 서버(/api) 호출 + 토큰 보관 + 비밀번호 브라우저 암호화
 const TOKEN_KEY = 'wr.token';
 
+const storageListeners = new Set();
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); return true; } catch { return false; } },
+  set: (k, v, remote = false) => {
+    try {
+      const value = v == null ? null : String(v);
+      if (localStorage.getItem(k) === value) return true;
+      value == null ? localStorage.removeItem(k) : localStorage.setItem(k, value);
+      storageListeners.forEach((fn) => fn({ key: k, value, remote }));
+      return true;
+    } catch { return false; }
+  },
+  keys: () => { try { return Object.keys(localStorage); } catch { return []; } },
+  subscribe: (fn) => { storageListeners.add(fn); return () => storageListeners.delete(fn); },
 };
 export { store };
 
@@ -14,7 +25,7 @@ export const hasToken = () => !!token;
 export function setToken(t) { token = t; store.set(TOKEN_KEY, t); }
 
 export class ApiError extends Error {
-  constructor(status, body) { super(body?.message || `HTTP ${status}`); this.status = status; this.code = body?.code; }
+  constructor(status, body) { super(body?.message || `HTTP ${status}`); this.status = status; this.code = body?.code; this.body = body; }
 }
 
 async function request(method, path, { body, query, accountId } = {}) {
@@ -71,6 +82,14 @@ export const api = {
   transcribe: (audio, mime, context = {}) => request('POST', '/meetings/transcribe', { accountId: context.accountId, body: { audio, mime, lang: 'ko', meetingId: context.meetingId, speakerState: context.speakerState || '' } }),
   summarizeMeeting: (m) => request('POST', '/meetings/summarize', { body: { title: m.title, date: m.date, attendees: m.attendees, notes: m.notes, transcript: m.transcript, segments: m.segments || [], speakerNames: m.speakerNames || {} } }),
   extractTemplate: (text, workName, writer) => request('POST', '/templates/extract', { body: { text, workName, writer } }),
+  aiStatus: (accountId) => request('GET','/ai/status',{accountId}),
+  reconnectAi: (accountId) => request('POST','/ai/reconnect',{accountId,body:{}}),
+  workspace: async (accountId, since = 0) => {
+    const items = []; let cursor = since, more;
+    do { const page = await request('GET', '/workspace', { accountId, query: { since: cursor } }); items.push(...page.items); cursor = page.cursor; more = page.hasMore; } while (more);
+    return { items, cursor };
+  },
+  saveWorkspace: (entry, accountId) => request('PUT', '/workspace', { accountId, body: entry }),
   meetings: async (accountId) => {
     const items = []; let cursor;
     do { const page = await request('GET', '/meetings', { accountId, query: { cursor } }); items.push(...page.items); cursor = page.nextCursor; } while (cursor);

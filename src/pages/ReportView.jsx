@@ -42,6 +42,11 @@ export default function ReportView({ me, weeks, sel, setSel }) {
   const [saving, setSaving] = useState(null); // SaveTemplateDialog source
   const { addTemplate } = useTemplates(me.employeeId);
 
+  useEffect(() => {
+    const sync=()=>{setTeam(store.get('wr.view.team')||'');setSort(store.get('wr.view.sort')||'report');setByWriter(store.get('wr.view.byWriter')==='1');};
+    addEventListener('wr:account-sync',sync);return()=>removeEventListener('wr:account-sync',sync);
+  },[]);
+
   useEffect(() => { store.set('wr.view.team', team || null); }, [team]);
   useEffect(() => { store.set('wr.view.sort', sort); }, [sort]);
   useEffect(() => { store.set('wr.view.byWriter', byWriter ? '1' : null); }, [byWriter]);

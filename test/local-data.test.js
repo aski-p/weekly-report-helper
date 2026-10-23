@@ -70,6 +70,21 @@ test('local PostgreSQL preserves the PGX personal-data contract', async (t) => {
     assert.deepEqual((await recordStore(other, 'meetings', 'GET')).items, []);
   });
 
+  await t.test('workspace sync is isolated, versioned, allowlisted and migration-safe', async () => {
+    const write = (owner, body) => recordStore(owner, 'workspace', 'PUT', { body });
+    const first = await write(me, {key:'memo.2026-43',value:'device A',baseVersion:0});
+    assert.deepEqual((await recordStore(other,'workspace','GET')).items, []);
+    await assert.rejects(write(me,{key:'wr.token',value:'secret',baseVersion:0}),{status:400});
+    await assert.rejects(write(me,{key:'memo.2026-43',value:'stale device',baseVersion:0}),e=>e.code==='SYNC_CONFLICT'&&e.current.value==='device A');
+    const migrated=await write(me,{key:'memo.2026-43',value:'old device',baseVersion:0,migration:true});
+    assert.equal(migrated.existed,true);assert.equal(migrated.item.value,'device A');
+    const second=await write(me,{key:'memo.2026-43',value:'new edit',baseVersion:first.item.version});
+    const changes=await recordStore(me,'workspace','GET',{query:{since:first.item.version}});
+    assert.equal(changes.items.length,1);assert.equal(changes.items[0].value,'new edit');
+    await write(me,{key:'memo.2026-43',value:null,baseVersion:second.item.version});
+    assert.equal((await recordStore(me,'workspace','GET')).items[0].value,null);
+  });
+
   await t.test('records survive a database and HTTP server restart', async () => {
     await app.close();
     await start();

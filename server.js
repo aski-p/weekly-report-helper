@@ -3,24 +3,29 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
+import { MAX_REQUEST_BYTES, SECURITY_HEADERS, CSP, safeFailure, securityError } from './lib/security.js';
 import { handle } from './lib/routes.js';
 
 const PORT = +process.env.PORT || 3000;
 const DIST = join(import.meta.dirname, 'dist');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
 
-const readBody = (req) => new Promise((ok) => {
-  let s = '';
-  req.on('data', (c) => (s += c));
-  req.on('end', () => { try { ok(s ? JSON.parse(s) : {}); } catch { ok({}); } });
-});
+const readBody = async (req) => {
+  let size=0;const chunks=[];
+  for await(const chunk of req){size+=chunk.length;if(size>MAX_REQUEST_BYTES)throw securityError('요청 내용이 너무 큽니다',413,'TOO_LARGE');chunks.push(chunk);}
+  return chunks.length?Buffer.concat(chunks).toString():undefined;
+};
 
 http.createServer(async (req, res) => {
+  for(const [key,value]of Object.entries(SECURITY_HEADERS))res.setHeader(key,value);
+  res.setHeader('Content-Security-Policy',CSP);
   const url = new URL(req.url, 'http://x');
   if (url.pathname.startsWith('/api/')) {
-    const body = req.method === 'GET' ? undefined : await readBody(req);
-    const { status, data } = await handle({ method: req.method, path: url.pathname.slice(4), headers: req.headers, body, query: url.searchParams });
-    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    let result;
+    try{const body=req.method==='GET'?undefined:await readBody(req);result=await handle({method:req.method,path:url.pathname.slice(4),headers:req.headers,body,query:url.searchParams,ip:req.socket.remoteAddress});}
+    catch(e){result=safeFailure(e,url.pathname);}
+    const {status,data}=result;
+    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store, private' });
     return res.end(JSON.stringify(data));
   }
   const file = normalize(join(DIST, url.pathname)).startsWith(DIST) ? join(DIST, url.pathname) : null;

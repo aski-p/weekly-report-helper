@@ -13,7 +13,7 @@ test('unsummarized meetings use AI and stay one bullet per source, even out of o
   const entries=await compactMeetings(records);
   assert.deepEqual(entries.map(m=>m.id),records.map(m=>m.id));
   assert.equal(meetingReportItem(entries)[0].thisWeek.split('\n').filter(s=>s.startsWith('  - ')).length,3);
-  assert.match(calls[0].messages[0].content,/회의 3건이면 3개 항목/);
+  assert.match(calls[0].messages.find((m)=>m.role==='user').content,/회의 3건이면 3개 항목/);
 });
 test('a missing meeting in the AI result fails visibly instead of silently dropping it',async()=>{
   reply={meetings:[{id:'meeting1',text:'안건1 검토'}]};

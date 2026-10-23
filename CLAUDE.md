@@ -24,3 +24,8 @@
 - 화자 구분은 `pgx/speaker_diarization.py`를 PGX STT에 연결한다. Whisper 단어 시각과 음성 임베딩으로 회의별 A/B/C를 구분하며, 이름은 사용자가 지정한다. 구분하지 못한 발언은 미확인으로 두고 수정을 허용한다.
 - 회의의 `segments`, `speaker_names`, 암호화된 `speaker_state`를 함께 저장한다. 상태는 로그인 계정·회의별 세션에 묶으며, 다른 회의 상태를 재사용하지 않는다.
 - `shared/speakers.js`를 채팅 서버 `shared/`에 함께 복사한다. 인증 프록시는 STT의 `x-wr-speaker-state` 헤더를 전달해야 한다. 원본 음성은 계속 영구 저장하지 않는다.
+
+- 메모·초안·게시 확인·선택 양식·자동화·화면 설정은 `workspace_documents`에 계정별 동기화한다. PGX에 `pgx/workspace.js`와 `shared/workspace-keys.js`도 복사하고 `/workspace`를 개인 자료 API로 연결한다. 토큰·권한·내비게이션 상태는 허용 목록에 없으며 전송하지 않는다.
+- 동기화는 버전 비교로 충돌을 검출한다. 다른 기기의 내용을 조용히 덮어쓰지 않는다. 사용자가 선택하기 전 두 사본을 유지하며, 선택 시에도 기기에 대체 사본을 남긴다.
+- Qwen 네이티브 XML 도구 응답 호환은 `pgx/tool_adapter.py`를 인증 프록시에 연결한다. 요청 전 `prepare_request`, 비스트리밍 응답 후 `normalize_response`를 적용한다. `/v1/stt/health`도 인증 후 STT 상태로 연결해야 AI 재연결 상태에 반영된다.
+- 보안 경계는 `lib/security.js`와 공통 라우터다. CSP를 바꾸면 글꼴·마이크·서비스 워커·채팅 연결을 확인한다. 요청 횟수 제한은 프로세스별 보조 수단이며 분산 전역 제한을 보장하지 않는다. 개인 자료·AI 응답 본문·인증 비밀을 로그에 남기지 않는다.

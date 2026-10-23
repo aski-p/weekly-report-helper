@@ -67,7 +67,7 @@ export async function startLocalDataServer({ dataDir, secret, port = 54329 } = {
         res.end(JSON.stringify({ ok: true, database: 'PostgreSQL (PGlite)', persistent: true }));
         return;
       }
-      const kind = { '/chat/templates': 'templates', '/chat/meetings': 'meetings' }[url.pathname];
+      const kind = { '/chat/templates': 'templates', '/chat/meetings': 'meetings', '/chat/workspace': 'workspace' }[url.pathname];
       if (kind) return void dataApi(req, res, url, kind);
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ code: 'NOT_FOUND', message: 'Local personal-data API only' }));
