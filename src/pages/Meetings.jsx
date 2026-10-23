@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText, store } from '../api.js';
+import SaveStatus from '../components/SaveStatus.jsx';
 import { toast } from '../components/Toast.jsx';
 import { blobToBase64, canRecord, fileToChunks, fmtClock, minutesText, todayISO, useMeetings, useRecorder } from '../meetings.js';
 
@@ -8,8 +9,8 @@ const dayLabel = (iso) => { const d = new Date(`${iso}T00:00`); return isNaN(d) 
 const titleOf = (m) => m.summary?.title || m.title || '제목 없는 회의';
 
 // weeks: 최신순 주차 목록 (주간보고 메모로 보내기용)
-export default function Meetings({ me, weeks }) {
-  const { list, create, update, remove } = useMeetings(me.employeeId);
+export default function Meetings({ me, onReport }) {
+  const { list, create, update, remove, status, error, retry, flush } = useMeetings(me.employeeId);
   const [selId, setSelId] = useState(() => store.get('wr.meetings.sel') || null);
   const [q, setQ] = useState('');
   const [period, setPeriod] = useState('all'); // all | week | month | day
@@ -110,7 +111,7 @@ export default function Meetings({ me, weeks }) {
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const ql = q.trim().toLowerCase();
     const shown = list.filter((m) => {
-      if (period === 'week' && m.date < iso(weekStart)) return false;
+      if (period === 'week' && (m.date < iso(weekStart) || m.date > iso(new Date(+weekStart + 6 * 86400000)))) return false;
       if (period === 'month' && m.date.slice(0, 7) !== iso(now).slice(0, 7)) return false;
       if (period === 'day' && m.date !== day) return false;
       if (!ql) return true;
@@ -133,6 +134,7 @@ export default function Meetings({ me, weeks }) {
           <h2>회의록 {list.length ? <small>{list.length}건</small> : null}</h2>
           <button className="btn primary small" onClick={newMeeting}>새 회의</button>
         </div>
+        <SaveStatus status={status} error={error} onRetry={retry} />
         <input className="mt-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="제목·참석자·내용 검색" aria-label="회의록 검색" />
         <div className="mt-filter" role="group" aria-label="기간">
           {[['all', '전체'], ['week', '이번 주'], ['month', '이번 달'], ['day', '날짜']].map(([k, l]) => (
@@ -143,7 +145,8 @@ export default function Meetings({ me, weeks }) {
         {!groups.length && <p className="view-empty small">{list.length ? '조건에 맞는 회의가 없습니다.' : '아직 회의록이 없습니다. 새 회의를 만들고 녹음을 시작하세요.'}</p>}
         {groups.map(([date, ms]) => (
           <section key={date} className="mt-day">
-            <h3>{dayLabel(date)}</h3>
+            <h3>{dayLabel(date)} · {ms.length}건</h3>
+            <button className="text-link" onClick={async () => { try { await flush(); onReport(date); } catch { toast('회의록 저장을 확인한 뒤 다시 시도하세요.'); } }}>이날 회의 주간보고로 가져가기</button>
             <ul>
               {ms.map((m) => (
                 <li key={m.id}>
@@ -164,10 +167,10 @@ export default function Meetings({ me, weeks }) {
         {!sel ? (
           <div className="mt-empty">
             <p>왼쪽에서 회의를 고르거나 <b>새 회의</b>를 만드세요.</p>
-            <p className="view-sub">녹음은 PGX 서버에서 글자로 바뀌고, 오디오는 저장하지 않습니다. 회의록은 이 기기에 저장됩니다.</p>
+            <p className="view-sub">녹음은 PGX 서버에서 글자로 바뀌고, 오디오는 저장하지 않습니다. 회의록은 날짜별로 서버에 저장되어 다른 기기에서도 확인할 수 있습니다. 주간보고에는 회의당 핵심 한 항목만 자동으로 들어갑니다.</p>
           </div>
         ) : (
-          <MeetingDetail key={sel.id} m={sel} me={me} weeks={weeks} update={update}
+          <MeetingDetail key={sel.id} m={sel} update={update} onReport={async () => { try { await flush(); onReport(sel.date); } catch { toast('회의록 저장을 확인한 뒤 다시 시도하세요.'); } }}
             onBack={() => setSelId(null)}
             onDelete={() => { if (recId === sel.id) { toast('녹음을 먼저 끝내세요.'); return; } if (confirm(`"${titleOf(sel)}" 회의록을 지울까요?`)) { remove(sel.id); setSelId(null); } }}
             rec={rec} recId={recId} onStart={() => startRec(sel)} onStop={stopRec}
@@ -178,7 +181,7 @@ export default function Meetings({ me, weeks }) {
   );
 }
 
-function MeetingDetail({ m, me, weeks, update, onBack, onDelete, rec, recId, onStart, onStop, queue, onRetry, onImport }) {
+function MeetingDetail({ m, update, onReport, onBack, onDelete, rec, recId, onStart, onStop, queue, onRetry, onImport }) {
   const [summarizing, setSummarizing] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef(null);
@@ -206,19 +209,6 @@ function MeetingDetail({ m, me, weeks, update, onBack, onDelete, rec, recId, onS
     try { await navigator.clipboard.writeText(minutesText(m)); toast('회의록을 복사했습니다.'); } catch { toast('복사하지 못했습니다.'); }
   }
 
-  // 회의 날짜가 속한 주의 주간보고 메모 끝에 한 줄 추가
-  function sendToReport() {
-    const w = weeks.find((x) => x.from <= m.date && m.date <= x.to);
-    if (!w) { toast('이 날짜의 보고 주차를 찾지 못했습니다.'); return; }
-    const k = `wr.memo.${me.employeeId}.${w.year}-${w.week}`;
-    const line = m.summary?.reportMemo || titleOf(m);
-    const cur = store.get(k) || '';
-    if (cur.includes(line)) { toast('이미 넣은 내용입니다.'); return; }
-    store.set(k, `${cur.replace(/\s+$/, '')}${cur.trim() ? '\n' : ''}${line}`);
-    dispatchEvent(new CustomEvent('wr:memo', { detail: k }));
-    toast(`${w.week}주차 주간보고 메모에 넣었습니다.`);
-  }
-
   const set = (k) => (e) => update(m.id, { [k]: e.target.value });
   const s = m.summary;
 
@@ -231,7 +221,7 @@ function MeetingDetail({ m, me, weeks, update, onBack, onDelete, rec, recId, onS
       <input className="mt-title" value={m.title} onChange={set('title')} placeholder={s?.title || '회의 제목'} aria-label="회의 제목" />
       <div className="mt-meta">
         <label className="mini-select"><span>날짜</span><input type="date" value={m.date} onChange={(e) => e.target.value && update(m.id, { date: e.target.value })} /></label>
-        <label className="mini-select grow"><span>참석</span><input value={m.attendees} onChange={set('attendees')} placeholder="예: 기업은행 김과장, 박준호, 김민지" /></label>
+        <label className="mini-select grow"><span>참석</span><input value={m.attendees} onChange={set('attendees')} placeholder="참석자 이름 또는 부서" /></label>
       </div>
 
       {/* 녹음 */}
@@ -286,7 +276,7 @@ function MeetingDetail({ m, me, weeks, update, onBack, onDelete, rec, recId, onS
             <h3>{s.title}</h3>
             <div className="mt-summary-tools">
               <button className="btn ghost small" onClick={copy}>회의록 복사</button>
-              <button className="btn ghost small" onClick={sendToReport} title={s.reportMemo}>주간보고 메모에 넣기</button>
+              <button className="btn ghost small" onClick={onReport} title="이 회의가 포함된 주의 보고서를 엽니다">주간보고로 가져가기</button>
             </div>
           </header>
           <div className="mt-block"><h4>요약</h4><pre>{s.summary}</pre></div>
@@ -304,7 +294,7 @@ function MeetingDetail({ m, me, weeks, update, onBack, onDelete, rec, recId, onS
               ) : <p className="view-sub">없음</p>}
             </div>
           </div>
-          {s.reportMemo && <p className="mt-memo-line">주간보고용 한 줄: {s.reportMemo}</p>}
+          {s.reportMemo && <p className="mt-memo-line">주간보고에는 회의별 한 항목으로 반영: {s.reportMemo}</p>}
         </section>
       )}
     </article>

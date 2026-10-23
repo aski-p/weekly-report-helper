@@ -10,6 +10,7 @@ import Meetings from './Meetings.jsx';
 import ChatWidget from './Chat.jsx';
 import { chat, roomTitle, useTotalUnread } from '../chat.js';
 import { notify } from '../useAutomation.js';
+import { useMeetings } from '../meetings.js';
 import { useTemplates } from '../templates.js';
 import { useAutomation } from '../useAutomation.js';
 
@@ -83,6 +84,9 @@ export default function Workspace({ me, onLogout, onInstall }) {
   useEffect(() => { if (key) store.set(`wr.draft.${key}`, draft ? JSON.stringify(draft) : null); }, [draft, key]);
   useEffect(() => { if (key) store.set(`wr.approval.${key}`, approval ? JSON.stringify(approval) : null); }, [approval, key]);
 
+  const { list: meetings, flush: flushMeetings } = useMeetings(me.employeeId);
+  const meetingCount = selWeek ? meetings.filter((m) => m.date >= selWeek.from && m.date <= selWeek.to && (m.notes.trim() || m.transcript.trim() || m.summary)).length : 0;
+
   // 양식
   const { templates } = useTemplates(me.employeeId);
   const [tplId, setTplIdRaw] = useState(() => store.get(`wr.writeTpl.${me.employeeId}`) || '');
@@ -93,9 +97,9 @@ export default function Workspace({ me, onLogout, onInstall }) {
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState('');
   const runDraft = useCallback(async () => {
-    if (!memo.trim()) { setDraftError('메모를 먼저 적어 주세요.'); return; }
     setDrafting(true); setDraftError(''); setTab('report');
     try {
+      await flushMeetings();
       const r = await api.draft(sel.year, sel.week, memo, { template });
       const questions = r.questions || [];
       if (!r.items.length) {
@@ -107,13 +111,14 @@ export default function Workspace({ me, onLogout, onInstall }) {
       }
       setDraft({ items: r.items.map((i) => ({ ...i, id: uid() })), questions, at: Date.now() });
       setApproval(null);
+      if (r.meetingCount) toast(`회의 ${r.meetingCount}건을 회의별 한 항목으로 정리했습니다.`);
     } catch (e) {
       setDraftError(errorText(e, '정리하지 못했습니다.'));
       setTab('memo');
     } finally {
       setDrafting(false);
     }
-  }, [memo, sel, template]);
+  }, [memo, sel, template, flushMeetings]);
 
   // 지난주 끌어오기: 지난주 내 항목의 차주 계획을 이번 주 실적 자리에 (이미 있는 업무는 건너뜀)
   const [pulling, setPulling] = useState(false);
@@ -247,7 +252,12 @@ export default function Workspace({ me, onLogout, onInstall }) {
       {view === 'view' && <ReportView me={me} weeks={weeks} sel={sel} setSel={setSel} />}
       {view === 'templates' && <Templates me={me} running={autoRunning} onRunNow={runNow} />}
       {/* 녹음이 탭을 옮겨도 이어지도록 회의록 화면은 늘 붙여 둔다 */}
-      <div className="mt-wrap" hidden={view !== 'meetings'}><Meetings me={me} weeks={weeks} /></div>
+      <div className="mt-wrap" hidden={view !== 'meetings'}><Meetings me={me} onReport={(date) => {
+        const week = weeks.find((w) => w.from <= date && date <= w.to);
+        if (!week) { toast('이 회의 날짜의 보고 주차를 찾지 못했습니다.'); return; }
+        setSel({ year: week.year, week: week.week }); setView('write'); setTab('memo');
+        toast('보고서로 정리하기를 누르면 해당 주의 회의가 한 건씩 짧게 반영됩니다.');
+      }} /></div>
       <ChatWidget />
 
       <div className="write-view" hidden={view !== 'write'}>
@@ -281,7 +291,7 @@ export default function Workspace({ me, onLogout, onInstall }) {
                 : `${me.buName} 보고 ${ctx.candidates.filter((c) => c.existing).length}건의 양식을 참고합니다`
                   + (ctx.lastWeekCount ? `, 지난주 내 기록 ${ctx.lastWeekCount}건도 이어서 씁니다.` : '.')}
             </p>
-            {ctx && !ctx.aiReady && <p className="warn-line">AI 키가 설정되지 않아 정리 기능을 쓸 수 없습니다.</p>}
+            {ctx && !ctx.aiReady && <p className="warn-line">AI가 설정되지 않아 새 글의 AI 정리는 사용할 수 없습니다. 요약이 저장된 회의는 보고서로 가져올 수 있습니다.</p>}
             <div className="write-tools">
               <label className="mini-select">
                 <span>양식</span>
@@ -294,6 +304,7 @@ export default function Workspace({ me, onLogout, onInstall }) {
             </div>
             {!templates.length && <p className="kbd-hint left">조회 화면에서 마음에 드는 글을 <b>양식으로 저장</b>하면 여기서 고를 수 있습니다.</p>}
             {draftError && <p className="form-error" role="alert">{draftError}</p>}
+            <p className="view-sub">선택한 주의 회의 {meetingCount}건을 자동으로 가져옵니다. 회의 3건이면 핵심 3개 항목으로 정리합니다.</p>
             <button className="btn primary block" onClick={runDraft} disabled={drafting || !sel}>
               {drafting ? '정리하는 중…' : items.length ? '메모로 다시 정리하기' : '보고서로 정리하기'}
             </button>

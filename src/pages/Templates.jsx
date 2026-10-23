@@ -1,11 +1,12 @@
 import { useState } from 'react';
+import SaveStatus from '../components/SaveStatus.jsx';
 import { toast } from '../components/Toast.jsx';
 import SaveTemplateDialog from '../components/SaveTemplateDialog.jsx';
 import { DAYS, fmtSlot, nextSlot, useTemplates } from '../templates.js';
 import { notifySupported, requestNotify } from '../useAutomation.js';
 
 export default function Templates({ me, onRunNow, running }) {
-  const { templates, addTemplate, updateTemplate, removeTemplate, auto, setAuto } = useTemplates(me.employeeId);
+  const { templates, addTemplate, updateTemplate, removeTemplate, auto, setAuto, status, error, retry } = useTemplates(me.employeeId);
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState(null);
   const [perm, setPerm] = useState(notifySupported() ? Notification.permission : 'unsupported');
@@ -69,6 +70,7 @@ export default function Templates({ me, onRunNow, running }) {
           </div>
           <button className="btn primary small" onClick={() => setAdding(true)}>붙여넣어 추가</button>
         </div>
+        <SaveStatus status={status} error={error} onRetry={retry} />
         {!templates.length && <p className="view-empty">아직 저장한 양식이 없습니다.</p>}
         <ul className="tpl-list">
           {templates.map((t) => (
@@ -91,7 +93,7 @@ export default function Templates({ me, onRunNow, running }) {
         </ul>
       </section>
 
-      {adding && <SaveTemplateDialog source={null} onClose={() => setAdding(false)} onSave={(t) => { addTemplate(t); toast(`"${t.name}" 양식을 저장했습니다.`); }} />}
+      {adding && <SaveTemplateDialog source={null} onClose={() => setAdding(false)} onSave={(t) => { addTemplate(t); toast(`"${t.name}" 양식 저장을 요청했습니다.`); }} />}
     </div>
   );
 }

@@ -1,37 +1,18 @@
-// 회의록: 이 기기에 사번별로 저장 + 녹음기 + 파일 → 조각 변환
+// 회의록: PGX에 사번별로 저장 + 녹음기 + 파일 → 조각 변환
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { store } from './api.js';
+import { useRemoteRecords } from './useRemoteRecords.js';
 
-const EVT = 'wr:meetings';
-const read = (k) => { try { return JSON.parse(store.get(k)) ?? []; } catch { return []; } };
 export const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 export const fmtClock = (sec) => { sec = Math.max(0, Math.round(sec)); const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60; return `${h ? `${h}:` : ''}${String(m).padStart(h ? 2 : 1, '0')}:${String(s).padStart(2, '0')}`; };
 
 export function useMeetings(employeeId) {
-  const key = `wr.meetings.${employeeId}`;
-  const [list, setList] = useState(() => read(key));
-  useEffect(() => {
-    const sync = () => setList(read(key));
-    addEventListener(EVT, sync);
-    addEventListener('storage', sync);
-    return () => { removeEventListener(EVT, sync); removeEventListener('storage', sync); };
-  }, [key]);
-
-  const save = useCallback((next) => {
-    try { store.set(key, JSON.stringify(next)); } catch { /* 저장 공간 부족 */ }
-    setList(next);
-    dispatchEvent(new Event(EVT));
-  }, [key]);
-
-  const create = useCallback((patch = {}) => {
-    const m = { id: Math.random().toString(36).slice(2, 10), date: todayISO(), title: '', attendees: '', notes: '', transcript: '', durationSec: 0, summary: null, createdAt: Date.now(), updatedAt: Date.now(), ...patch };
-    save([m, ...read(key)]);
-    return m;
-  }, [key, save]);
-  // patch 는 객체 또는 (이전값 → 바꿀 값) 함수. 녹음 중 조각 결과가 겹쳐 와도 최신 값 위에 쌓인다.
-  const update = useCallback((id, patch) => save(read(key).map((m) => (m.id === id ? { ...m, ...(typeof patch === 'function' ? patch(m) : patch), updatedAt: Date.now() } : m))), [key, save]);
-  const remove = useCallback((id) => save(read(key).filter((m) => m.id !== id)), [key, save]);
-  return { list, create, update, remove };
+  const { items: list, add, update: change, remove, status, error, retry, flush } = useRemoteRecords('meetings', employeeId);
+  const create = useCallback((patch = {}) => add({ id: crypto.randomUUID(), date: todayISO(), title: '', attendees: '', notes: '', transcript: '', durationSec: 0, summary: null, createdAt: Date.now(), updatedAt: Date.now(), ...patch }), [add]);
+  const update = useCallback((id, patch) => change(id, (m) => {
+    const next = typeof patch === 'function' ? patch(m) : patch;
+    return { ...(('notes' in next && next.notes !== m.notes) || ('transcript' in next && next.transcript !== m.transcript) ? { summary: null } : {}), ...next };
+  }), [change]);
+  return { list, create, update, remove, status, error, retry, flush };
 }
 
 // ───────── 녹음기: 30초마다 끊어 독립된 파일 조각으로 넘긴다 (조각마다 바로 글자로 바꾸기 위해)

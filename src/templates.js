@@ -1,6 +1,7 @@
-// 양식(학습)과 자동화 설정: 이 기기에 사번별로 저장한다 (메모·초안과 같은 방식)
+// 양식은 PGX DB에, 기기별 자동화 설정은 이 기기에 저장한다.
 import { useCallback, useEffect, useState } from 'react';
 import { store } from './api.js';
+import { useRemoteRecords } from './useRemoteRecords.js';
 
 const read = (k, d) => { try { return JSON.parse(store.get(k)) ?? d; } catch { return d; } };
 const EVT = 'wr:templates';
@@ -9,41 +10,20 @@ export const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
 export const DEFAULT_AUTO = { enabled: false, templateId: null, day: 5, time: '16:00', lastRun: 0 };
 
 export function useTemplates(employeeId) {
-  const tKey = `wr.templates.${employeeId}`;
+  const { items: templates, add, update: updateTemplate, remove: removeTemplate, status, error, retry } = useRemoteRecords('templates', employeeId);
   const aKey = `wr.auto.${employeeId}`;
-  const [templates, setT] = useState(() => read(tKey, []));
   const [auto, setA] = useState(() => ({ ...DEFAULT_AUTO, ...read(aKey, {}) }));
-
-  // 같은 화면의 다른 컴포넌트·다른 탭과 동기화
   useEffect(() => {
-    const sync = () => { setT(read(tKey, [])); setA({ ...DEFAULT_AUTO, ...read(aKey, {}) }); };
-    addEventListener(EVT, sync);
-    addEventListener('storage', sync);
+    const sync = () => setA({ ...DEFAULT_AUTO, ...read(aKey, {}) });
+    addEventListener(EVT, sync); addEventListener('storage', sync);
     return () => { removeEventListener(EVT, sync); removeEventListener('storage', sync); };
-  }, [tKey, aKey]);
-
-  const saveTemplates = useCallback((next) => {
-    store.set(tKey, JSON.stringify(next));
-    setT(next);
-    dispatchEvent(new Event(EVT));
-  }, [tKey]);
-
-  const addTemplate = useCallback((t) => {
-    const item = { ...t, id: Math.random().toString(36).slice(2, 10), createdAt: Date.now() };
-    saveTemplates([item, ...read(tKey, [])]);
-    return item;
-  }, [saveTemplates, tKey]);
-  const updateTemplate = useCallback((id, patch) => saveTemplates(read(tKey, []).map((t) => (t.id === id ? { ...t, ...patch } : t))), [saveTemplates, tKey]);
-  const removeTemplate = useCallback((id) => saveTemplates(read(tKey, []).filter((t) => t.id !== id)), [saveTemplates, tKey]);
-
+  }, [aKey]);
+  const addTemplate = useCallback((t) => add({ ...t, id: crypto.randomUUID(), createdAt: Date.now(), updatedAt: Date.now() }), [add]);
   const setAuto = useCallback((patch) => {
     const next = { ...DEFAULT_AUTO, ...read(aKey, {}), ...patch };
-    store.set(aKey, JSON.stringify(next));
-    setA(next);
-    dispatchEvent(new Event(EVT));
+    store.set(aKey, JSON.stringify(next)); setA(next); dispatchEvent(new Event(EVT));
   }, [aKey]);
-
-  return { templates, addTemplate, updateTemplate, removeTemplate, auto, setAuto };
+  return { templates, addTemplate, updateTemplate, removeTemplate, auto, setAuto, status, error, retry };
 }
 
 // 이번 주(일요일 시작)의 예약 시각 — 이미 지났을 수도 있다

@@ -3,7 +3,7 @@ const TOKEN_KEY = 'wr.token';
 
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* 저장 불가 환경 */ } },
+  set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); return true; } catch { return false; } },
 };
 export { store };
 
@@ -69,6 +69,18 @@ export const api = {
   transcribe: (audio, mime) => request('POST', '/meetings/transcribe', { body: { audio, mime, lang: 'ko' } }),
   summarizeMeeting: (m) => request('POST', '/meetings/summarize', { body: { title: m.title, date: m.date, attendees: m.attendees, notes: m.notes, transcript: m.transcript } }),
   extractTemplate: (text, workName, writer) => request('POST', '/templates/extract', { body: { text, workName, writer } }),
+  meetings: async () => {
+    const items = []; let cursor;
+    do { const page = await request('GET', '/meetings', { query: { cursor } }); items.push(...page.items); cursor = page.nextCursor; } while (cursor);
+    return items;
+  },
+  saveMeeting: (meeting) => request('PUT', '/meetings', { body: { meeting } }),
+  importMeetings: (meetings) => request('PUT', '/meetings', { body: { meetings } }),
+  deleteMeeting: (id) => request('DELETE', '/meetings', { query: { id } }),
+  templates: () => request('GET', '/templates'),
+  saveTemplate: (template) => request('PUT', '/templates', { body: { template } }),
+  importTemplates: (templates) => request('PUT', '/templates', { body: { templates } }),
+  deleteTemplate: (id) => request('DELETE', '/templates', { query: { id } }),
   context: (year, week) => request('GET', '/context', { query: { year, week } }),
   works: (q) => request('GET', '/works', { query: { q } }),
   draft: (year, week, memo, { template, fromLastWeek } = {}) => request('POST', '/draft', { body: { year, week, memo, template, fromLastWeek } }),

@@ -1,6 +1,7 @@
 // 자동화 실행기: 예약 시각이 지나면 고른 양식으로 이번 주 초안을 만들고 알린다. 게시는 하지 않는다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, errorText, store } from './api.js';
+import { useMeetings } from './meetings.js';
 import { isDue, useTemplates } from './templates.js';
 
 export const notifySupported = () => typeof Notification !== 'undefined';
@@ -19,6 +20,7 @@ export async function notify(title, body, tag = 'wr-auto') {
 // weeks: 최신순 주차 목록. onReady({ year, week }, draft) 로 결과를 넘긴다.
 export function useAutomation(me, weeks, onReady) {
   const { templates, auto, setAuto } = useTemplates(me.employeeId);
+  const { flush: flushMeetings } = useMeetings(me.employeeId);
   const [running, setRunning] = useState(false);
   const busy = useRef(false);
   const cb = useRef(onReady);
@@ -47,6 +49,7 @@ export function useAutomation(me, weeks, onReady) {
       return;
     }
     try {
+      await flushMeetings();
       const memo = store.get(`wr.memo.${key}`) || '';
       const r = await api.draft(week.year, week.week, memo, { template: tpl, fromLastWeek: true });
       const uid = () => Math.random().toString(36).slice(2, 9);
@@ -62,7 +65,7 @@ export function useAutomation(me, weeks, onReady) {
       busy.current = false;
       setRunning(false);
     }
-  }, [templates, auto.templateId, weeks, me.employeeId, setAuto]);
+  }, [templates, auto.templateId, weeks, me.employeeId, setAuto, flushMeetings]);
 
   // 30초마다, 그리고 앱으로 돌아올 때 확인
   useEffect(() => {
