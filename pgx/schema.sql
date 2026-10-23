@@ -1,10 +1,18 @@
 -- PGX personal data. Existing template rows are preserved.
 CREATE TABLE IF NOT EXISTS templates (
-  id text PRIMARY KEY, owner_id text NOT NULL, name text NOT NULL,
+  id text NOT NULL, owner_id text NOT NULL, name text NOT NULL,
   this_week text NOT NULL DEFAULT '', next_week text NOT NULL DEFAULT '', issue text NOT NULL DEFAULT '',
   style text NOT NULL DEFAULT '', origin text NOT NULL DEFAULT '',
-  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (owner_id, id)
 );
+-- Upgrade the original globally keyed table without deleting any rows.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='templates'::regclass AND contype='p' AND array_length(conkey,1)=1) THEN
+    ALTER TABLE templates DROP CONSTRAINT templates_pkey;
+    ALTER TABLE templates ADD PRIMARY KEY (owner_id,id);
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS templates_owner ON templates (owner_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS meetings (
   owner_id text NOT NULL, id text NOT NULL,

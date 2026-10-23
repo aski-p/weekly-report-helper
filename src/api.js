@@ -17,9 +17,10 @@ export class ApiError extends Error {
   constructor(status, body) { super(body?.message || `HTTP ${status}`); this.status = status; this.code = body?.code; }
 }
 
-async function request(method, path, { body, query } = {}) {
+async function request(method, path, { body, query, accountId } = {}) {
   const qs = query ? '?' + new URLSearchParams(Object.entries(query).filter(([, v]) => v != null && v !== '')) : '';
   const headers = {};
+  if (accountId != null) headers['x-wr-account'] = String(accountId);
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res;
@@ -64,23 +65,23 @@ export const api = {
   weeks: (count) => request('GET', '/weeks', { query: { count } }),
   report: (year, week) => request('GET', '/report', { query: { year, week } }),
   lastWeek: (year, week) => request('GET', '/last-week', { query: { year, week } }),
-  chatTicket: () => request('GET', '/chat/ticket'),
+  chatTicket: (accountId) => request('GET', '/chat/ticket', { accountId }),
   meetingStatus: () => request('GET', '/meetings/status'),
   transcribe: (audio, mime) => request('POST', '/meetings/transcribe', { body: { audio, mime, lang: 'ko' } }),
   summarizeMeeting: (m) => request('POST', '/meetings/summarize', { body: { title: m.title, date: m.date, attendees: m.attendees, notes: m.notes, transcript: m.transcript } }),
   extractTemplate: (text, workName, writer) => request('POST', '/templates/extract', { body: { text, workName, writer } }),
-  meetings: async () => {
+  meetings: async (accountId) => {
     const items = []; let cursor;
-    do { const page = await request('GET', '/meetings', { query: { cursor } }); items.push(...page.items); cursor = page.nextCursor; } while (cursor);
+    do { const page = await request('GET', '/meetings', { accountId, query: { cursor } }); items.push(...page.items); cursor = page.nextCursor; } while (cursor);
     return items;
   },
-  saveMeeting: (meeting) => request('PUT', '/meetings', { body: { meeting } }),
-  importMeetings: (meetings) => request('PUT', '/meetings', { body: { meetings } }),
-  deleteMeeting: (id) => request('DELETE', '/meetings', { query: { id } }),
-  templates: () => request('GET', '/templates'),
-  saveTemplate: (template) => request('PUT', '/templates', { body: { template } }),
-  importTemplates: (templates) => request('PUT', '/templates', { body: { templates } }),
-  deleteTemplate: (id) => request('DELETE', '/templates', { query: { id } }),
+  saveMeeting: (meeting, accountId) => request('PUT', '/meetings', { accountId, body: { meeting } }),
+  importMeetings: (meetings, accountId) => request('PUT', '/meetings', { accountId, body: { meetings } }),
+  deleteMeeting: (id, accountId) => request('DELETE', '/meetings', { accountId, query: { id } }),
+  templates: (accountId) => request('GET', '/templates', { accountId }),
+  saveTemplate: (template, accountId) => request('PUT', '/templates', { accountId, body: { template } }),
+  importTemplates: (templates, accountId) => request('PUT', '/templates', { accountId, body: { templates } }),
+  deleteTemplate: (id, accountId) => request('DELETE', '/templates', { accountId, query: { id } }),
   context: (year, week) => request('GET', '/context', { query: { year, week } }),
   works: (q) => request('GET', '/works', { query: { q } }),
   draft: (year, week, memo, { template, fromLastWeek } = {}) => request('POST', '/draft', { body: { year, week, memo, template, fromLastWeek } }),

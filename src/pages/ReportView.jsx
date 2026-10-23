@@ -186,8 +186,8 @@ export default function ReportView({ me, weeks, sel, setSel }) {
       ))}
 
       {saving && (
-        <SaveTemplateDialog source={saving} onClose={() => setSaving(null)}
-          onSave={(t) => { addTemplate(t); toast(`"${t.name}" 양식을 저장했습니다.`); }} />
+        <SaveTemplateDialog source={saving} accountName={me.employeeName} onClose={() => setSaving(null)}
+          onSave={async (t) => { await addTemplate(t); toast(`"${t.name}" 템플릿을 내 계정에 저장했습니다.`); }} />
       )}
     </section>
   );

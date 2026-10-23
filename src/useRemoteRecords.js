@@ -5,10 +5,10 @@ const stores = new Map();
 function shared(kind, employeeId) {
   const key = `wr.${kind}.${employeeId}`;
   if (!stores.has(key)) stores.set(key, createRemoteStore({ key, storage: store,
-    fetchAll: () => kind === 'templates' ? api.templates() : api.meetings(),
-    put: (item) => kind === 'templates' ? api.saveTemplate(item) : api.saveMeeting(item),
-    drop: (id) => kind === 'templates' ? api.deleteTemplate(id) : api.deleteMeeting(id),
-    migrate: (item) => kind === 'templates' ? api.importTemplates([item]) : api.importMeetings([item]),
+    fetchAll: () => kind === 'templates' ? api.templates(employeeId) : api.meetings(employeeId),
+    put: (item) => kind === 'templates' ? api.saveTemplate(item, employeeId) : api.saveMeeting(item, employeeId),
+    drop: (id) => kind === 'templates' ? api.deleteTemplate(id, employeeId) : api.deleteMeeting(id, employeeId),
+    migrate: (item) => kind === 'templates' ? api.importTemplates([item], employeeId) : api.importMeetings([item], employeeId),
   }));
   return stores.get(key);
 }

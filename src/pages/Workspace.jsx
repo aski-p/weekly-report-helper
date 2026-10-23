@@ -28,7 +28,7 @@ export default function Workspace({ me, onLogout, onInstall }) {
   const setView = (v) => { setViewRaw(v); store.set('wr.view', v); scrollTo(0, 0); };
 
   // 채팅: 로그인해 있는 동안 늘 연결 (다른 화면에서도 새 메시지를 알 수 있게)
-  useEffect(() => { chat.start(); }, []);
+  useEffect(() => { chat.start(me.employeeId); return () => chat.stop(); }, [me.employeeId]);
   const chatUnread = useTotalUnread();
   useEffect(() => chat.onMessage((m) => {
     const s = chat.get();

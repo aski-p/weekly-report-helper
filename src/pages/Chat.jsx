@@ -57,16 +57,9 @@ export default function ChatWidget() {
   async function talk(userId) {
     try { const r = await chat.openDm(userId); setRoomId(r.id); } catch (e) { toast(e.message); }
   }
-  async function toggleFriend(u) {
-    try {
-      if (s.friends.has(u.id)) { await chat.removeFriend(u.id); toast(`${u.name}님을 친구에서 뺐습니다.`); }
-      else { await chat.addFriend(u.id); toast(`${u.name}님을 친구로 추가했습니다.`); }
-    } catch (e) { toast(e.message); }
-  }
-
   const ql = q.trim().toLowerCase();
-  const match = (u) => !ql || [u.name, u.department, u.grade].some((t) => (t || '').toLowerCase().includes(ql));
-  const row = (u) => <PersonRow key={u.id} u={u} online={s.online.has(u.id)} friend={s.friends.has(u.id)} onTalk={() => talk(u.id)} onFriend={() => toggleFriend(u)} />;
+  const match = (u) => !ql || [u.name, u.department, u.grade, u.id].some((t) => (t || '').toLowerCase().includes(ql));
+  const row = (u) => <PersonRow key={u.id} u={u} online={s.online.has(u.id)} onTalk={() => talk(u.id)} />;
 
   let body;
   if (s.status === 'off') body = <p className="chat-note">{s.error}</p>;
@@ -77,12 +70,16 @@ export default function ChatWidget() {
     if (tab === 'friends') {
       const fr = sortPeople(people.filter((u) => s.friends.has(u.id) && match(u)));
       const on = fr.filter((u) => s.online.has(u.id)), off = fr.filter((u) => !s.online.has(u.id));
-      content = !s.friends.size ? <p className="chat-note">아직 친구가 없습니다. <button className="text-link" onClick={() => setTab('dept')}>부서</button>에서 동료를 찾아 친구로 추가하세요.</p> : (
+      content = <>
+        <button className="btn primary small block" disabled={s.status !== 'online'} onClick={() => setPicker({ mode: 'friend' })}>친구 등록</button>
+        <p className="chat-note">내 계정의 친구 목록은 서버에 저장되어 다른 기기에서도 유지됩니다.</p>
+        {!s.friends.size ? <p className="chat-note">아직 친구가 없습니다. 친구 등록으로 동료를 찾아보세요.</p> : (
         <>
           <p className="chat-sec">접속 중 {on.length}</p>{on.map(row)}
           <p className="chat-sec">오프라인 {off.length}</p>{off.map(row)}
+          {!fr.length && <p className="chat-note">검색에 맞는 친구가 없습니다.</p>}
         </>
-      );
+      )}</>;
     } else if (tab === 'dept') {
       if (ql) content = <>{sortPeople(people.filter(match)).map(row)}{!people.some(match) && <p className="chat-note">찾는 사람이 없습니다.</p>}</>;
       else if (dept) {
@@ -177,7 +174,8 @@ export default function ChatWidget() {
         <PeoplePicker mode={picker.mode} room={s.rooms.find((r) => r.id === picker.roomId)} onClose={() => setPicker(null)}
           onDone={async (ids, name) => {
             try {
-              if (picker.mode === 'invite') { await chat.invite(picker.roomId, ids); toast('초대했습니다.'); }
+              if (picker.mode === 'friend') { await chat.addFriend(ids[0]); toast('친구를 내 계정에 등록했습니다.'); }
+              else if (picker.mode === 'invite') { await chat.invite(picker.roomId, ids); toast('초대했습니다.'); }
               else if (ids.length === 1 && !name) setRoomId((await chat.openDm(ids[0])).id);
               else setRoomId((await chat.createGroup(name, ids)).id);
               setPicker(null);
@@ -188,7 +186,7 @@ export default function ChatWidget() {
   );
 }
 
-function PersonRow({ u, online, friend, onTalk, onFriend }) {
+function PersonRow({ u, online, onTalk }) {
   const [editing, setEditing] = useState(false);
   return (
     <div className="person-row">
@@ -199,11 +197,26 @@ function PersonRow({ u, online, friend, onTalk, onFriend }) {
       </span>
       {u.id === BOT_ID
         ? <button className="btn small ghost" onClick={() => setEditing(true)}>프로필</button>
-        : <button className={`btn small ${friend ? 'ghost is-friend' : 'ghost'}`} onClick={onFriend} aria-pressed={friend} title={friend ? '친구 끊기' : '친구 추가'}>{friend ? '친구 ✓' : '친구 추가'}</button>}
+        : <FriendButton user={u} />}
       <button className="btn primary small" onClick={onTalk}>대화</button>
       {editing && <BotProfileDialog onClose={() => setEditing(false)} />}
     </div>
   );
+}
+
+function FriendButton({ user }) {
+  const s = useChat();
+  const [busy, setBusy] = useState(false);
+  const friend = s.friends.has(user.id);
+  async function toggle() {
+    setBusy(true);
+    try {
+      if (friend) await chat.removeFriend(user.id); else await chat.addFriend(user.id);
+      toast(friend ? `${user.name}님을 친구에서 해제했습니다.` : `${user.name}님을 내 친구로 등록했습니다.`);
+    } catch (e) { toast(e.message); }
+    finally { setBusy(false); }
+  }
+  return <button className={`btn ghost small${friend ? ' is-friend' : ''}`} onClick={toggle} disabled={busy || s.status !== 'online'} aria-pressed={friend} aria-label={`${user.name} ${friend ? '친구 해제' : '친구 등록'}`}>{busy ? '저장 중…' : friend ? '친구 ✓' : '친구 등록'}</button>;
 }
 
 function Avatar({ name, src, group, online }) {
@@ -219,6 +232,7 @@ function Conversation({ room, active, onBack, onInvite, onLeft }) {
   const s = useChat();
   const list = s.messages[room.id];
   const title = roomTitle(room, s);
+  const other = room.kind === 'dm' ? s.users[room.members.find((m) => m.id !== s.me?.id)?.id] : null;
   const typer = useTyping(room.id);
   const [text, setText] = useState('');
   const [menu, setMenu] = useState(false);
@@ -304,6 +318,7 @@ function Conversation({ room, active, onBack, onInvite, onLeft }) {
               : (() => { const o = room.members.find((m) => m.id !== s.me.id); const u = s.users[o?.id]; return u ? `${[u.department, u.grade].filter(Boolean).join(' · ')}${s.online.has(u.id) ? ' · 접속 중' : ''}` : ''; })()}
           </p>
         </div>
+        {other && other.id !== BOT_ID && <FriendButton user={other} />}
         <div className="convo-menu">
           <button className="icon-btn" aria-label="대화방 메뉴" aria-expanded={menu} onClick={() => setMenu((x) => !x)}>⋯</button>
           {menu && (
@@ -413,24 +428,24 @@ function PeoplePicker({ mode, room, onClose, onDone }) {
   const [picked, setPicked] = useState([]);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { ref.current?.showModal(); }, []);
+  useEffect(() => { ref.current?.showModal(); chat.refreshUsers().catch((e) => toast(e.message)); }, []);
 
   const inRoom = new Set(room?.members.map((m) => m.id) || []);
-  const people = Object.values(s.users).filter((u) => u.id !== s.me.id && !inRoom.has(u.id));
+  const people = Object.values(s.users).filter((u) => u.id !== s.me.id && !inRoom.has(u.id) && (mode !== 'friend' || (u.id !== BOT_ID && !s.friends.has(u.id))));
   const ql = q.trim().toLowerCase();
-  const shown = people.filter((u) => !ql || [u.name, u.department, u.bu].some((t) => (t || '').toLowerCase().includes(ql)))
+  const shown = people.filter((u) => !ql || [u.name, u.department, u.bu, u.id].some((t) => (t || '').toLowerCase().includes(ql)))
     .sort((a, b) => (s.online.has(b.id) - s.online.has(a.id)) || (a.department || '').localeCompare(b.department || '', 'ko') || a.name.localeCompare(b.name, 'ko'));
-  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const toggle = (id) => setPicked((p) => p.includes(id) ? p.filter((x) => x !== id) : mode === 'friend' ? [id] : [...p, id]);
   const group = mode === 'new' && picked.length > 1;
 
   return (
     <dialog ref={ref} className="confirm picker-dialog" onClose={onClose}>
       <header className="confirm-head">
-        <h3>{mode === 'invite' ? '사람 초대' : '새 대화'}</h3>
-        <p>{mode === 'invite' ? '이 방에 넣을 사람을 고르세요.' : '한 명을 고르면 1:1, 여러 명이면 그룹 대화가 됩니다.'}</p>
+        <h3>{mode === 'friend' ? '친구 등록' : mode === 'invite' ? '사람 초대' : '새 대화'}</h3>
+        <p>{mode === 'friend' ? '앱에 로그인한 동료를 이름·부서·사번으로 찾아 내 친구로 등록하세요. 상대방의 친구 목록은 바뀌지 않습니다.' : mode === 'invite' ? '이 방에 넣을 사람을 고르세요.' : '한 명을 고르면 1:1, 여러 명이면 그룹 대화가 됩니다.'}</p>
       </header>
       <div className="confirm-body">
-        <input className="mt-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·부서 검색" aria-label="사람 검색" autoFocus />
+        <input className="mt-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·부서·사번 검색" aria-label="사람 검색" autoFocus />
         {group && <label className="field" style={{ marginTop: 10 }}><span>그룹 이름 (비워 두면 참여자 이름)</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} /></label>}
         <ul className="people">
           {shown.map((u) => (
@@ -448,7 +463,7 @@ function PeoplePicker({ mode, room, onClose, onDone }) {
       <footer className="confirm-foot">
         <button className="btn ghost" onClick={() => ref.current.close()} disabled={busy}>취소</button>
         <button className="btn primary" disabled={!picked.length || busy} onClick={async () => { setBusy(true); await onDone(picked, group ? name.trim() || '' : ''); setBusy(false); }}>
-          {mode === 'invite' ? `${picked.length}명 초대` : picked.length > 1 ? `${picked.length}명과 그룹 대화` : '대화 시작'}
+          {mode === 'friend' ? '내 친구로 등록' : mode === 'invite' ? `${picked.length}명 초대` : picked.length > 1 ? `${picked.length}명과 그룹 대화` : '대화 시작'}
         </button>
       </footer>
     </dialog>

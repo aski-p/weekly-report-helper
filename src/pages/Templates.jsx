@@ -65,10 +65,10 @@ export default function Templates({ me, onRunNow, running }) {
       <section className="panel" aria-labelledby="tpl-h">
         <div className="panel-head">
           <div>
-            <h2 id="tpl-h">내 양식 {templates.length ? <small>{templates.length}개</small> : null}</h2>
-            <p className="panel-sub">조회 화면에서 마음에 드는 글의 <b>양식으로 저장</b>을 누르거나, 글을 붙여넣어 추가하세요.</p>
+            <h2 id="tpl-h">내 템플릿 {templates.length ? <small>{templates.length}개</small> : null}</h2>
+            <p className="panel-sub"><b>{me.employeeName}님의 개인 계정에 저장됩니다.</b> 다른 계정과 공유되지 않습니다. 조회 화면에서 마음에 드는 글의 <b>양식으로 저장</b>을 누르거나, 글을 붙여넣어 추가하세요.</p>
           </div>
-          <button className="btn primary small" onClick={() => setAdding(true)}>붙여넣어 추가</button>
+          <button className="btn primary small" onClick={() => setAdding(true)}>새 템플릿</button>
         </div>
         <SaveStatus status={status} error={error} onRetry={retry} />
         {!templates.length && <p className="view-empty">아직 저장한 양식이 없습니다.</p>}
@@ -93,7 +93,7 @@ export default function Templates({ me, onRunNow, running }) {
         </ul>
       </section>
 
-      {adding && <SaveTemplateDialog source={null} onClose={() => setAdding(false)} onSave={(t) => { addTemplate(t); toast(`"${t.name}" 양식 저장을 요청했습니다.`); }} />}
+      {adding && <SaveTemplateDialog source={null} accountName={me.employeeName} onClose={() => setAdding(false)} onSave={async (t) => { await addTemplate(t); toast(`"${t.name}" 템플릿을 내 계정에 저장했습니다.`); }} />}
     </div>
   );
 }

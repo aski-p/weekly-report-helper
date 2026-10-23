@@ -4,7 +4,7 @@ import { api } from './api.js';
 
 const initial = () => ({ status: 'idle', error: '', me: null, users: {}, online: new Set(), friends: new Set(), rooms: [], messages: {}, hasMore: {}, typing: {} });
 
-class ChatClient {
+export class ChatClient {
   constructor() {
     this.s = initial();
     this.subs = new Set();
@@ -13,6 +13,7 @@ class ChatClient {
     this.wait = new Map();
     this.retry = 0;
     this.listeners = new Set(); // 새 메시지 알림용
+    this.generation = 0;
     this.viewing = null; // 지금 화면에 열려 있는 방 (알림 생략용)
   }
 
@@ -22,16 +23,25 @@ class ChatClient {
   set(patch) { this.s = { ...this.s, ...(typeof patch === 'function' ? patch(this.s) : patch) }; this.subs.forEach((f) => f()); }
   onMessage(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
 
-  async start() {
+  async start(accountId) {
     if (this.started) return;
+    this.accountId = accountId;
+    this.generation++;
     this.started = true;
     this.connect();
-    addEventListener('online', () => this.ws?.readyState !== 1 && this.connect());
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && this.ws?.readyState !== 1) this.connect(); });
+    this.onOnline = () => this.ws?.readyState !== 1 && this.connect();
+    this.onVisible = () => { if (!document.hidden) { if (this.ws?.readyState !== 1) this.connect(); else this.call('friends').then((ids) => this.set({ friends: new Set(ids) })).catch(() => {}); } };
+    addEventListener('online', this.onOnline);
+    document.addEventListener('visibilitychange', this.onVisible);
   }
 
   stop() {
     this.started = false;
+    this.generation++;
+    removeEventListener('online', this.onOnline);
+    document.removeEventListener('visibilitychange', this.onVisible);
+    for (const w of this.wait.values()) { clearTimeout(w.timer); w.no(new Error('로그인 계정이 변경되었습니다')); }
+    this.wait.clear();
     clearTimeout(this.timer);
     this.ws?.close(1000);
     this.ws = null;
@@ -43,27 +53,37 @@ class ChatClient {
     if (!this.started) return;
     clearTimeout(this.timer);
     if (this.ws && this.ws.readyState <= 1) return;
+    if (this.connecting === this.generation) return;
+    this.connecting = this.generation;
     this.set({ status: this.s.me ? 'reconnecting' : 'connecting', error: '' });
+    const generation = this.generation;
+    const current = () => this.started && generation === this.generation;
     let t;
-    try { t = await api.chatTicket(); } catch (e) {
+    try { t = await api.chatTicket(this.accountId); } catch (e) {
+      if (this.connecting === generation) this.connecting = null;
+      if (!current()) return;
       if (e.code === 'NO_CHAT') { this.set({ status: 'off', error: '채팅 서버가 아직 설정되지 않았습니다.' }); return; }
       return this.backoff(e.message);
     }
+    if (this.connecting === generation) this.connecting = null;
+    if (!current()) return;
     const ws = new WebSocket(`${t.url}?ticket=${encodeURIComponent(t.ticket)}`);
     this.ws = ws;
     ws.onopen = async () => {
+      if (!current()) { ws.close(); return; }
       this.retry = 0;
       try {
         const h = await this.call('hello');
+        if (!current()) return;
         const users = Object.fromEntries(h.users.map((u) => [u.id, u]));
         this.set((s) => ({ status: 'online', me: h.me, users, online: new Set(h.online), friends: new Set(h.friends || []), rooms: h.rooms, messages: reconnectKeep(s.messages, h.rooms) }));
-      } catch (e) { this.set({ error: e.message }); }
+      } catch (e) { if (current()) this.set({ error: e.message }); }
     };
-    ws.onmessage = (e) => this.handle(JSON.parse(e.data));
+    ws.onmessage = (e) => { if (current()) this.handle(JSON.parse(e.data)); };
     ws.onclose = (e) => {
       if (this.ws !== ws) return;
       this.ws = null;
-      for (const w of this.wait.values()) w.no(new Error('연결이 끊겼습니다'));
+      for (const w of this.wait.values()) { clearTimeout(w.timer); w.no(new Error('연결이 끊겼습니다')); }
       this.wait.clear();
       if (e.code === 4001) this.retry = 0; // 티켓 만료 → 새 티켓으로 바로
       this.backoff(e.code === 4001 ? '' : '채팅 서버와 연결이 끊겼습니다');
@@ -81,9 +101,9 @@ class ChatClient {
     return new Promise((ok, no) => {
       if (this.ws?.readyState !== 1) { no(new Error('채팅 서버에 연결되지 않았습니다')); return; }
       const id = ++this.n;
-      this.wait.set(id, { ok, no });
+      const timer = setTimeout(() => { if (this.wait.has(id)) { this.wait.delete(id); no(new Error('응답이 없습니다')); } }, 15_000);
+      this.wait.set(id, { ok, no, timer });
       this.ws.send(JSON.stringify({ id, op, ...args }));
-      setTimeout(() => { if (this.wait.has(id)) { this.wait.delete(id); no(new Error('응답이 없습니다')); } }, 15_000);
     });
   }
 
@@ -92,6 +112,7 @@ class ChatClient {
       const w = this.wait.get(m.re);
       if (!w) return;
       this.wait.delete(m.re);
+      clearTimeout(w.timer);
       return m.ok ? w.ok(m.data) : w.no(Object.assign(new Error(m.error?.message || '오류'), { code: m.error?.code }));
     }
     if (m.ev === 'message') {
@@ -125,6 +146,8 @@ class ChatClient {
         const users = m.user && !s.users[m.userId] ? { ...s.users, [m.userId]: m.user } : s.users;
         return { online, users };
       });
+    } else if (m.ev === 'friends') {
+      this.set({ friends: new Set(m.friends || []) });
     } else if (m.ev === 'user') {
       // 봇 이름·사진이 바뀌었을 때
       this.set((s) => ({ users: { ...s.users, [m.user.id]: { ...s.users[m.user.id], ...m.user } } }));
@@ -170,6 +193,7 @@ class ChatClient {
 
   openDm = (userId) => this.call('openDm', { userId }).then((room) => { this.set((s) => ({ rooms: [room, ...s.rooms.filter((r) => r.id !== room.id)] })); return room; });
   createGroup = (name, memberIds) => this.call('createGroup', { name, memberIds }).then((room) => { this.set((s) => ({ rooms: [room, ...s.rooms.filter((r) => r.id !== room.id)] })); return room; });
+  refreshUsers = () => this.call('users').then((us) => this.set({ users: Object.fromEntries(us.map((u) => [u.id, u])) }));
   addFriend = (userId) => this.call('addFriend', { userId }).then((ids) => this.set({ friends: new Set(ids) }));
   removeFriend = (userId) => this.call('removeFriend', { userId }).then((ids) => this.set({ friends: new Set(ids) }));
   invite = (roomId, memberIds) => this.call('invite', { roomId, memberIds });

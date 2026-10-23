@@ -10,7 +10,7 @@ export const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
 export const DEFAULT_AUTO = { enabled: false, templateId: null, day: 5, time: '16:00', lastRun: 0 };
 
 export function useTemplates(employeeId) {
-  const { items: templates, add, update: updateTemplate, remove: removeTemplate, status, error, retry } = useRemoteRecords('templates', employeeId);
+  const { items: templates, add, update: updateTemplate, remove: removeTemplate, status, error, retry, flush } = useRemoteRecords('templates', employeeId);
   const aKey = `wr.auto.${employeeId}`;
   const [auto, setA] = useState(() => ({ ...DEFAULT_AUTO, ...read(aKey, {}) }));
   useEffect(() => {
@@ -18,7 +18,11 @@ export function useTemplates(employeeId) {
     addEventListener(EVT, sync); addEventListener('storage', sync);
     return () => { removeEventListener(EVT, sync); removeEventListener('storage', sync); };
   }, [aKey]);
-  const addTemplate = useCallback((t) => add({ ...t, id: crypto.randomUUID(), createdAt: Date.now(), updatedAt: Date.now() }), [add]);
+  const addTemplate = useCallback(async (t) => {
+    const item = add({ ...t, id: t.id || crypto.randomUUID(), createdAt: t.createdAt || Date.now(), updatedAt: Date.now() });
+    await flush();
+    return item;
+  }, [add, flush]);
   const setAuto = useCallback((patch) => {
     const next = { ...DEFAULT_AUTO, ...read(aKey, {}), ...patch };
     store.set(aKey, JSON.stringify(next)); setA(next); dispatchEvent(new Event(EVT));

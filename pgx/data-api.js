@@ -113,9 +113,8 @@ export function createDataApi({ pool, verifyTicket }) {
           } else {
             const r = await client.query(`INSERT INTO templates (owner_id,id,name,this_week,next_week,issue,style,origin,created_at)
               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-              ON CONFLICT (id) DO UPDATE SET name=$3,this_week=$4,next_week=$5,issue=$6,style=$7,origin=$8,updated_at=now()
+              ON CONFLICT (owner_id,id) DO UPDATE SET name=$3,this_week=$4,next_week=$5,issue=$6,style=$7,origin=$8,updated_at=now()
               WHERE templates.owner_id=$1 RETURNING *`, [owner,t.id,t.name,t.thisWeek,t.nextWeek,t.issue,t.style,t.origin,t.createdAt]);
-            if (!r.rowCount) throw invalid('다른 양식과 ID가 겹칩니다. 다시 추가하세요', 409, 'CONFLICT');
             saved.push(row(kind, r.rows[0]));
           }
         }

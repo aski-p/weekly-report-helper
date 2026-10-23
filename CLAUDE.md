@@ -14,3 +14,7 @@
 - PGX의 `chat-server/data-store/`에 두 파일을 복사하며, 기존 서버가 `createDataApi({ pool, verifyTicket })`와 `ensureDataTables(pool)`로 연결한다. 비공개 서버 전체 코드는 공개 저장소에 넣지 않는다.
 - 회의록은 날짜별 조회하고, 보고서 작성 시 선택한 주의 회의를 자동 포함한다. 회의당 핵심 한 항목만 쓰며(3회의 = 3항목) 상세 회의록을 주간보고에 복사하지 않는다.
 - 클라이언트 저장 요청은 직렬화하고, 실패한 변경은 로컬 outbox에서 재시도한다. 기존 기기 자료 이전은 서버의 기존 자료를 덮어쓰지 않는다.
+
+- 템플릿의 기본키는 `(owner_id,id)`이며, 이전 전역 ID 기본키는 데이터 보존 후 자동 이전한다. 개인 자료 API의 `x-wr-account`는 실제 로그인 계정과 맞아야 한다.
+- 템플릿 직접 작성·AI 추출 후 저장 모두 DB 저장을 확인한 뒤 완료 처리한다.
+- 친구 목록은 `pgx/friends.js`에서 계정별 DB 저장하고 `friends` 이벤트를 같은 계정의 연결에만 보낸다. 채팅 서버의 `ops`에 `createFriendOperations({ query: q, notify: sendTo })`를 연결한다.
