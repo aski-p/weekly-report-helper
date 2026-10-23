@@ -212,8 +212,9 @@ function MeetingDetail({ m, update, onReport, onBack, onDelete, rec, recId, onSt
 
   return (
     <article className="mt-sheet">
+      <button type="button" className="meeting-return btn ghost" onClick={onBack}>‹ 회의 목록으로</button>
       <div className="mt-sheet-top">
-        <button className="text-link mt-back" onClick={onBack}>‹ 목록</button>
+        <button className="text-link mt-back" onClick={onBack}>‹ 회의 목록으로</button>
         <button className="text-link" onClick={onDelete}>삭제</button>
       </div>
       <input className="mt-title" value={m.title} onChange={set('title')} placeholder={s?.title || '회의 제목'} aria-label="회의 제목" />

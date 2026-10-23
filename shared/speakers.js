@@ -24,3 +24,18 @@ export function appendSpeech(meeting, result, offset = 0) {
   const next = { ...meeting, segments: [...old, ...entries], speakerState: result.speakerState || meeting.speakerState || '' };
   return { segments: next.segments, speakerState: next.speakerState, transcript: transcriptText(next, false) };
 }
+
+// A random meeting UUID seeds a stable shuffle: the same speaker keeps its character.
+const CHARACTERS = ['🐼','🦊','🐨','🐯','🦁','🐸','🐵','🐰','🐹','🐻','🐷','🐶','🐱','🐙','🦄','🐧','🐥','🦉','🦋','🐢','🐳','🦖','🦦','🦔'];
+export function speakerAvatar(meetingId, id) {
+  if (!id) return '🫥';
+  let seed = 2166136261;
+  for (const c of String(meetingId)) seed = Math.imul(seed ^ c.charCodeAt(0), 16777619) >>> 0;
+  const pool = [...CHARACTERS];
+  for (let i = pool.length - 1; i > 0; i--) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const j = seed % (i + 1); [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  let n = 0; for (const c of id) n = n * 26 + c.charCodeAt(0) - 64;
+  return pool[(n - 1) % pool.length];
+}
