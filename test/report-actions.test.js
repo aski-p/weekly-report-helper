@@ -44,7 +44,7 @@ test('real client and protected routes register then delete a weekly report item
   if(req.method==='GET'&&path==='/weekly-reports/2026/43/7')return send(report?200:404,report||{code:'NOT_FOUND'});
   if(req.method==='POST'&&path==='/weekly-reports'){if(report)return send(409,{code:'REPORT_EXISTS'});report={weeklyReportId:20,items:[]};return send(200,report);}
   if(req.method==='POST'&&path==='/weekly-reports/20/items'){report.items.push({...body,weeklyReportItemId:nextId++,writers:[me]});return send(200,report.items.at(-1));}
-  if(path.endsWith('/lock'))return send(204);
+  if(path.endsWith('/lock')){if(req.method==='POST'&&report?.items[0])report.items[0].updatedAt=new Date().toISOString();return send(204);}
   if(path==='/weekly-reports/20/items/1'&&req.method==='PUT'){Object.assign(report.items[0],body);return send(200,report.items[0]);}
   if(path==='/weekly-reports/20/items/1'&&req.method==='DELETE'){report.items=[];return send(204);}
   return send(404,{code:'NOT_FOUND'});
@@ -61,4 +61,27 @@ test('real client and protected routes register then delete a weekly report item
  assert.equal((await call('/report-items/delete',body,{...headers,'x-wr-account':'2'})).status,409);
  assert.equal((await call('/report-items/delete',{...body,itemId:'../'})).status,400);
  assert.equal((await call('/report-items/delete',body)).status,200);assert.equal(report.items.length,0);assert.ok(events.includes('DELETE /weekly-reports/20/items/1'));
+});
+
+test('lock metadata changes do not falsely invalidate a deletion preview',async()=>{
+ const f=fixture({updatedAt:'2026-10-23T01:00:00Z'});const input=f.input();
+ f.api.lock=async()=>{f.item.updatedAt='2026-10-23T01:00:01Z';f.item.lockedBy=me.employeeId;};
+ assert.equal((await deleteReportItem(f.api,me,input)).deleted,true);assert.equal(f.counts().deleted,1);
+});
+test('older open tabs can delete using the legacy timestamp-bearing version',async()=>{
+ const f=fixture({updatedAt:'2026-10-23T01:00:00Z'});
+ const legacy=JSON.stringify([10,'G',undefined,'검증 업무',['검증 완료','재확인 예정',''],[['1',me.employeeName]],f.item.updatedAt]);
+ f.item.updatedAt='2026-10-23T01:00:02Z';
+ assert.equal((await deleteReportItem(f.api,me,{...f.input(),version:legacy})).deleted,true);
+});
+test('writer order, ID types and transport newline representation are stable',async()=>{
+ const owner={...me,employeeName:'가명가'};
+ const f=fixture({writers:[{employeeId:1,employeeName:'가명가'},{employeeId:2,employeeName:'가명나'}],thisWeek:'작성자 : 가명가\r\n내 내용\r\n작성자 : 가명나\r\n유지'});
+ const input=f.input();
+ f.api.lock=async()=>{f.item.weeklyReportItemId='10';f.item.workId=null;f.item.writers.reverse();f.item.writers.forEach(w=>w.employeeId=String(w.employeeId));f.item.thisWeek=f.item.thisWeek.replaceAll('\r\n','\n');};
+ assert.equal((await deleteReportItem(f.api,owner,input)).mode,'section');assert.match(f.counts().update.thisWeek,/유지/);
+});
+test('legacy preview still rejects real content changes',async()=>{
+ const f=fixture();const parts=JSON.parse(f.input().version);parts.push('old timestamp');const version=JSON.stringify(parts);
+ f.item.nextWeek='다른 계획';await assert.rejects(deleteReportItem(f.api,me,{...f.input(),version}),{code:'REPORT_CHANGED'});assert.equal(f.counts().deleted,0);
 });
