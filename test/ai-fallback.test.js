@@ -41,3 +41,19 @@ test('끝내 글로만 답하면 항목 없이 그 질문을 돌려준다 (오�
   assert.deepEqual(r.items, []);
   assert.deepEqual(r.questions, ['메모가 한 줄뿐이라 내용을 확정할 수 없습니다.', '어떤 업무인지', '금주 진행 내용']);
 });
+
+test('a runtime can omit unsupported chat template options without losing tool calls', async (t) => {
+  const ai = await fakeAI([toolReply({ items: [], questions: [] })]);
+  const previous = process.env.AI_SEND_CHAT_TEMPLATE_KWARGS;
+  t.after(() => {
+    ai.close();
+    if (previous == null) delete process.env.AI_SEND_CHAT_TEMPLATE_KWARGS;
+    else process.env.AI_SEND_CHAT_TEMPLATE_KWARGS = previous;
+  });
+  process.env.AI_BASE_URL = ai.url;
+  process.env.AI_SEND_CHAT_TEMPLATE_KWARGS = 'false';
+  const { draftReport } = await import('../lib/ai.js');
+  await draftReport(ctx);
+  assert.equal(Object.hasOwn(ai.seen[0], 'chat_template_kwargs'), false);
+  assert.equal(ai.seen[0].tool_choice.function.name, 'write_weekly_report');
+});

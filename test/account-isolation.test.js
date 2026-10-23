@@ -40,3 +40,20 @@ test('logout immediately rejects pending friend operations and clears their time
   assert.equal(client.wait.size, 0);
   assert.equal(client.get().friends.size, 0);
 });
+
+test('a directory response from the previous account cannot register employees after logout', async () => {
+  browserGlobals();
+  const original = api.searchEmployees;
+  let finish, calls = 0;
+  api.searchEmployees = () => new Promise((r) => { finish = r; });
+  try {
+    const client = new ChatClient();
+    client.started = true; client.accountId = 'account-a';
+    client.call = async () => { calls++; return []; };
+    const result = client.searchEmployees('Test employee');
+    client.stop();
+    finish({ employees: [{ directoryTicket: 'old-account-entry' }] });
+    await assert.rejects(result, /계정이 변경/);
+    assert.equal(calls, 0);
+  } finally { api.searchEmployees = original; }
+});

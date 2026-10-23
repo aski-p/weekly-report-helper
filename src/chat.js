@@ -194,6 +194,17 @@ export class ChatClient {
   openDm = (userId) => this.call('openDm', { userId }).then((room) => { this.set((s) => ({ rooms: [room, ...s.rooms.filter((r) => r.id !== room.id)] })); return room; });
   createGroup = (name, memberIds) => this.call('createGroup', { name, memberIds }).then((room) => { this.set((s) => ({ rooms: [room, ...s.rooms.filter((r) => r.id !== room.id)] })); return room; });
   refreshUsers = () => this.call('users').then((us) => this.set({ users: Object.fromEntries(us.map((u) => [u.id, u])) }));
+  async searchEmployees(q) {
+    const generation = this.generation;
+    const current = () => this.started && this.generation === generation;
+    const { employees } = await api.searchEmployees(q, this.accountId);
+    if (!current()) throw new Error('로그인 계정이 변경되었습니다');
+    if (!employees.length) return [];
+    const users = await this.call('directory', { tickets: employees.map((e) => e.directoryTicket) });
+    if (!current()) throw new Error('로그인 계정이 변경되었습니다');
+    this.set((s) => ({ users: { ...s.users, ...Object.fromEntries(users.map((u) => [u.id, u])) } }));
+    return users;
+  }
   addFriend = (userId) => this.call('addFriend', { userId }).then((ids) => this.set({ friends: new Set(ids) }));
   removeFriend = (userId) => this.call('removeFriend', { userId }).then((ids) => this.set({ friends: new Set(ids) }));
   invite = (roomId, memberIds) => this.call('invite', { roomId, memberIds });

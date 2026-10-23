@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "node server.js",
+    "dev:api": "node --env-file-if-exists=.env.local server.js",
+    "dev:db": "node --env-file-if-exists=.env.local dev/local-data-server.mjs",
+    "dev:chat": "node --env-file-if-exists=.env.local dev/local-chat-server.mjs",
     "build": "vite build",
     "start": "node server.js",
     "test": "node --test test/*.test.js"
@@ -19,8 +21,10 @@
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.11",
     "@vitejs/plugin-react": "6.1.2",
     "vite": "8.3.5",
-    "vite-plugin-pwa": "2.0.0"
+    "vite-plugin-pwa": "2.0.0",
+    "ws": "8.22.0"
   }
 }

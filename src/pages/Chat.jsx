@@ -170,7 +170,7 @@ export default function ChatWidget() {
           {body}
         </section>
       )}
-      {picker && (
+      {picker && s.me && (
         <PeoplePicker mode={picker.mode} room={s.rooms.find((r) => r.id === picker.roomId)} onClose={() => setPicker(null)}
           onDone={async (ids, name) => {
             try {
@@ -430,10 +430,26 @@ function PeoplePicker({ mode, room, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { ref.current?.showModal(); chat.refreshUsers().catch((e) => toast(e.message)); }, []);
 
+  const [search, setSearch] = useState({ query: '', users: [], loading: false, error: '' });
+  const term = q.trim();
+  useEffect(() => {
+    let active = true;
+    if (!term) { setSearch({ query: '', users: [], loading: false, error: '' }); return; }
+    setSearch({ query: term, users: [], loading: true, error: '' });
+    const timer = setTimeout(() => {
+      chat.searchEmployees(term).then((users) => {
+        if (active) setSearch({ query: term, users, loading: false, error: '' });
+      }).catch((e) => { if (active) setSearch({ query: term, users: [], loading: false, error: e.message }); });
+    }, 300);
+    return () => { active = false; clearTimeout(timer); };
+  }, [term, s.me.id]);
+
   const inRoom = new Set(room?.members.map((m) => m.id) || []);
-  const people = Object.values(s.users).filter((u) => u.id !== s.me.id && !inRoom.has(u.id) && (mode !== 'friend' || (u.id !== BOT_ID && !s.friends.has(u.id))));
+  const source = search.query === term ? search.users : [];
+  const bot = s.users[BOT_ID];
+  const people = [...source, ...(mode !== 'friend' && bot ? [bot] : [])].filter((u) => u.id !== s.me.id && !inRoom.has(u.id) && (mode !== 'friend' || (u.id !== BOT_ID && !s.friends.has(u.id))));
   const ql = q.trim().toLowerCase();
-  const shown = people.filter((u) => !ql || [u.name, u.department, u.bu, u.id].some((t) => (t || '').toLowerCase().includes(ql)))
+  const shown = people.filter((u) => u.id !== BOT_ID || !ql || ql === '봇' || (u.name || '').toLowerCase().includes(ql))
     .sort((a, b) => (s.online.has(b.id) - s.online.has(a.id)) || (a.department || '').localeCompare(b.department || '', 'ko') || a.name.localeCompare(b.name, 'ko'));
   const toggle = (id) => setPicked((p) => p.includes(id) ? p.filter((x) => x !== id) : mode === 'friend' ? [id] : [...p, id]);
   const group = mode === 'new' && picked.length > 1;
@@ -442,22 +458,24 @@ function PeoplePicker({ mode, room, onClose, onDone }) {
     <dialog ref={ref} className="confirm picker-dialog" onClose={onClose}>
       <header className="confirm-head">
         <h3>{mode === 'friend' ? '친구 등록' : mode === 'invite' ? '사람 초대' : '새 대화'}</h3>
-        <p>{mode === 'friend' ? '앱에 로그인한 동료를 이름·부서·사번으로 찾아 내 친구로 등록하세요. 상대방의 친구 목록은 바뀌지 않습니다.' : mode === 'invite' ? '이 방에 넣을 사람을 고르세요.' : '한 명을 고르면 1:1, 여러 명이면 그룹 대화가 됩니다.'}</p>
+        <p>{mode === 'friend' ? 'OneFinger 직원을 이름·부서·사번으로 검색해 등록하세요. 메신저에 접속한 적 없는 직원도 등록할 수 있습니다.' : mode === 'invite' ? 'OneFinger에서 검색해 이 방에 초대할 직원을 고르세요.' : 'OneFinger에서 검색해 한 명을 고르면 1:1, 여러 명이면 그룹 대화가 됩니다.'}</p>
       </header>
       <div className="confirm-body">
         <input className="mt-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·부서·사번 검색" aria-label="사람 검색" autoFocus />
         {group && <label className="field" style={{ marginTop: 10 }}><span>그룹 이름 (비워 두면 참여자 이름)</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} /></label>}
+        {term && (search.query !== term || search.loading) && <p className="chat-note" role="status">OneFinger 직원을 검색하는 중…</p>}
+        {search.query === term && search.error && <p className="chat-note" role="alert">{search.error}</p>}
         <ul className="people">
           {shown.map((u) => (
             <li key={u.id}>
               <label className="person">
                 <input type="checkbox" checked={picked.includes(u.id)} onChange={() => toggle(u.id)} />
                 <Avatar name={u.name} src={u.avatar} online={s.online.has(u.id)} />
-                <span><b>{u.name}</b> {u.grade}<small>{[u.department, u.bu].filter(Boolean).join(' · ')}</small></span>
+                <span><b>{u.name}</b> {u.grade}<small>{[u.department, u.bu, u.employeeNo].filter(Boolean).join(' · ')}</small></span>
               </label>
             </li>
           ))}
-          {!shown.length && <li className="view-empty small">{people.length ? '찾는 사람이 없습니다.' : '아직 앱에 로그인한 다른 동료가 없습니다. 동료가 한 번 로그인하면 여기에 나타납니다.'}</li>}
+          {!shown.length && !search.loading && !search.error && <li className="view-empty small">{term ? '등록하거나 초대할 검색 결과가 없습니다.' : '이름·부서·사번을 입력하면 OneFinger 직원을 검색합니다.'}</li>}
         </ul>
       </div>
       <footer className="confirm-foot">

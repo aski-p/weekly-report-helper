@@ -14,7 +14,7 @@ export function createFriendOperations({ query, notify }) {
       const owner = id(me.id), target = id(userId);
       if (!/^[A-Za-z0-9_.-]{1,40}$/.test(target) || target === owner || target === 'qwen-bot') throw invalid('친구로 등록할 동료를 선택하세요');
       const [found] = await query('SELECT 1 FROM users WHERE employee_id=$1', [target]);
-      if (!found) throw invalid('앱에 로그인한 적이 없는 동료입니다');
+      if (!found) throw invalid('직원 검색에서 동료를 먼저 선택하세요');
       await query('INSERT INTO friends (owner_id,friend_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [owner,target]);
       return publish(owner);
     },

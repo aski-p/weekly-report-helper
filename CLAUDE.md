@@ -18,6 +18,8 @@
 - 템플릿의 기본키는 `(owner_id,id)`이며, 이전 전역 ID 기본키는 데이터 보존 후 자동 이전한다. 개인 자료 API의 `x-wr-account`는 실제 로그인 계정과 맞아야 한다.
 - 템플릿 직접 작성·AI 추출 후 저장 모두 DB 저장을 확인한 뒤 완료 처리한다.
 - 친구 목록은 `pgx/friends.js`에서 계정별 DB 저장하고 `friends` 이벤트를 같은 계정의 연결에만 보낸다. 채팅 서버의 `ops`에 `createFriendOperations({ query: q, notify: sendTo })`를 연결한다.
+- 직원 검색은 로그인 계정으로 OneFinger `/employees`를 조회하고, 계정에 묶인 서명 티켓으로 채팅 서버에 등록한다. `pgx/directory.js`의 `createDirectoryOperations`를 `ops`에 연결하고 시작 전에 `ensureDirectoryTables`를 실행한다. WebSocket 로그인은 `purpose`가 있는 직원 등록 티켓을 거부한다. OneFinger 로그인 토큰을 채팅 서버로 전달하지 않는다.
+- 임시 로컬 DB·채팅 서버는 `dev/`에 있고 데이터와 키는 `.claude/`·`.env.local`에만 둔다. AI·채팅을 PGX로 복귀시켜도 로컬 DB를 유지할 때는 `RECORD_STORE_URL`과 별도 `RECORD_STORE_SECRET`을 사용한다. 로컬 전용 주소·키를 Vercel 운영 환경에 넣지 않는다.
 
 - 화자 구분은 `pgx/speaker_diarization.py`를 PGX STT에 연결한다. Whisper 단어 시각과 음성 임베딩으로 회의별 A/B/C를 구분하며, 이름은 사용자가 지정한다. 구분하지 못한 발언은 미확인으로 두고 수정을 허용한다.
 - 회의의 `segments`, `speaker_names`, 암호화된 `speaker_state`를 함께 저장한다. 상태는 로그인 계정·회의별 세션에 묶으며, 다른 회의 상태를 재사용하지 않는다.

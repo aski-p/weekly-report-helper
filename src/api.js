@@ -66,6 +66,7 @@ export const api = {
   report: (year, week) => request('GET', '/report', { query: { year, week } }),
   lastWeek: (year, week) => request('GET', '/last-week', { query: { year, week } }),
   chatTicket: (accountId) => request('GET', '/chat/ticket', { accountId }),
+  searchEmployees: (q, accountId) => request('GET', '/chat/employees', { query: { q }, accountId }),
   meetingStatus: () => request('GET', '/meetings/status'),
   transcribe: (audio, mime, context = {}) => request('POST', '/meetings/transcribe', { accountId: context.accountId, body: { audio, mime, lang: 'ko', meetingId: context.meetingId, speakerState: context.speakerState || '' } }),
   summarizeMeeting: (m) => request('POST', '/meetings/summarize', { body: { title: m.title, date: m.date, attendees: m.attendees, notes: m.notes, transcript: m.transcript, segments: m.segments || [], speakerNames: m.speakerNames || {} } }),
