@@ -29,5 +29,6 @@ export function useRemoteRecords(kind, employeeId) {
   }, [s]);
   const add = useCallback((item) => { s.change(item.id, item, 0); return item; }, [s]);
   const remove = useCallback((id) => s.change(id, null, 0), [s]);
-  return { ...state, add, update: s.update, remove, retry: s.refresh, flush: s.flush };
+  const getRecord = useCallback((id) => s.get().items.find((item) => item.id === id), [s]);
+  return { ...state, getRecord, add, update: s.update, remove, retry: s.refresh, flush: s.flush };
 }

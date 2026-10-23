@@ -23,3 +23,8 @@ CREATE TABLE IF NOT EXISTS meetings (
   PRIMARY KEY (owner_id, id)
 );
 CREATE INDEX IF NOT EXISTS meetings_owner_date ON meetings (owner_id, meeting_date DESC, id DESC);
+
+-- Speaker labels and editable names are private to each saved meeting.
+ALTER TABLE meetings ADD COLUMN IF NOT EXISTS segments jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE meetings ADD COLUMN IF NOT EXISTS speaker_names jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE meetings ADD COLUMN IF NOT EXISTS speaker_state text NOT NULL DEFAULT '';

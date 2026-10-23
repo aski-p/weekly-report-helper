@@ -1,18 +1,20 @@
 // 회의록: PGX에 사번별로 저장 + 녹음기 + 파일 → 조각 변환
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { transcriptText, speakerList, speakerLabel } from '../shared/speakers.js';
 import { useRemoteRecords } from './useRemoteRecords.js';
 
 export const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 export const fmtClock = (sec) => { sec = Math.max(0, Math.round(sec)); const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60; return `${h ? `${h}:` : ''}${String(m).padStart(h ? 2 : 1, '0')}:${String(s).padStart(2, '0')}`; };
 
 export function useMeetings(employeeId) {
-  const { items: list, add, update: change, remove, status, error, retry, flush } = useRemoteRecords('meetings', employeeId);
-  const create = useCallback((patch = {}) => add({ id: crypto.randomUUID(), date: todayISO(), title: '', attendees: '', notes: '', transcript: '', durationSec: 0, summary: null, createdAt: Date.now(), updatedAt: Date.now(), ...patch }), [add]);
+  const { items: list, add, update: change, remove, status, error, retry, flush, getRecord } = useRemoteRecords('meetings', employeeId);
+  const create = useCallback((patch = {}) => add({ id: crypto.randomUUID(), date: todayISO(), title: '', attendees: '', notes: '', transcript: '', segments: [], speakerNames: {}, speakerState: '', durationSec: 0, summary: null, createdAt: Date.now(), updatedAt: Date.now(), ...patch }), [add]);
   const update = useCallback((id, patch) => change(id, (m) => {
     const next = typeof patch === 'function' ? patch(m) : patch;
-    return { ...(('notes' in next && next.notes !== m.notes) || ('transcript' in next && next.transcript !== m.transcript) ? { summary: null } : {}), ...next };
+    if ('segments' in next) next.transcript = transcriptText({ ...m, ...next }, false);
+    return { ...(('segments' in next || 'speakerNames' in next || ('notes' in next && next.notes !== m.notes) || ('transcript' in next && next.transcript !== m.transcript)) ? { summary: null } : {}), ...next };
   }), [change]);
-  return { list, create, update, remove, status, error, retry, flush };
+  return { list, create, update, remove, status, error, retry, flush, getRecord };
 }
 
 // ───────── 녹음기: 30초마다 끊어 독립된 파일 조각으로 넘긴다 (조각마다 바로 글자로 바꾸기 위해)
@@ -53,7 +55,7 @@ export function useRecorder({ onChunk }) {
     rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
     rec.onstop = () => {
       const blob = new Blob(parts, { type: rec.mimeType || x.mime || 'audio/webm' });
-      if (blob.size > 2000) cb.current?.({ blob, seq: x.seq++, start: startAt });
+      if (blob.size > 2000) cb.current?.({ blob, seq: x.seq++, start: startAt, meetingId: x.meetingId });
       if (x.running) startSegment();
     };
     rec.start();
@@ -62,7 +64,7 @@ export function useRecorder({ onChunk }) {
     x.cut = setTimeout(() => rec.state === 'recording' && rec.stop(), CHUNK_MS);
   }, []);
 
-  const start = useCallback(async (offsetSec = 0) => {
+  const start = useCallback(async (offsetSec = 0, meetingId = null) => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = ctx.createAnalyser();
@@ -71,7 +73,7 @@ export function useRecorder({ onChunk }) {
     let wake = null;
     try { wake = await navigator.wakeLock?.request('screen'); } catch { /* 지원 안 함 */ }
     liveStreams.add(stream);
-    r.current = { stream, ctx, analyser, wake, mime: pickMime(), seq: 0, base: offsetSec, since: Date.now(), running: true };
+    r.current = { stream, ctx, analyser, wake, meetingId, mime: pickMime(), seq: 0, base: offsetSec, since: Date.now(), running: true };
     setElapsed(offsetSec);
     setState('recording');
     startSegment();
@@ -166,11 +168,14 @@ export function minutesText(m) {
   const s = m.summary;
   const lines = [`[회의록] ${s?.title || m.title || '회의'}`, `일시: ${m.date}${m.durationSec ? ` (녹음 ${fmtClock(m.durationSec)})` : ''}`];
   if (m.attendees) lines.push(`참석: ${m.attendees}`);
+  const speakers = speakerList(m);
+  if (speakers.length) lines.push(`화자: ${speakers.map((id) => speakerLabel(id, m.speakerNames)).join(', ')}`);
   if (s) {
     lines.push('', '■ 요약', s.summary);
     if (s.topics?.length) { lines.push('', '■ 안건별 논의'); s.topics.forEach((t) => { lines.push(`* ${t.topic}`); t.points.forEach((p) => lines.push(`  - ${p}`)); }); }
     if (s.decisions?.length) { lines.push('', '■ 결정 사항'); s.decisions.forEach((d) => lines.push(`- ${d}`)); }
     if (s.actionItems?.length) { lines.push('', '■ 할 일'); s.actionItems.forEach((a) => lines.push(`- ${a.task}${a.owner ? ` / ${a.owner}` : ''}${a.due ? ` / ${a.due}` : ''}`)); }
-  } else if (m.transcript) lines.push('', m.transcript);
+  } else if (m.transcript) lines.push('', transcriptText(m));
+  if (s && m.segments?.length) lines.push('', '■ 발언별 녹취', transcriptText(m));
   return lines.join('\n');
 }

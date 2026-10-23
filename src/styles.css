@@ -573,3 +573,15 @@ html[data-serif] body { letter-spacing: -0.005em; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Meeting-local speaker labels and names */
+.speaker-transcript { min-width: 0; }
+.speaker-heading, .speaker-turn-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.speaker-heading h3 { margin: 0; font-size: 15px; }
+.speaker-names { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 12px 0; }
+.speaker-utterances { max-height: 560px; overflow-y: auto; margin-top: 14px; }
+.speaker-utterance { padding: 10px 0; border-top: 1px solid var(--line, #dfe3e8); }
+.speaker-turn-head { justify-content: flex-start; margin-bottom: 6px; }
+.speaker-turn-head > span { font-size: 12px; opacity: .65; font-variant-numeric: tabular-nums; }
+.speaker-turn-head select { max-width: 240px; padding: 5px 8px; font: inherit; border-radius: 6px; }
+.speaker-utterance textarea { width: 100%; min-height: 60px; resize: vertical; box-sizing: border-box; padding: 10px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line, #dfe3e8); border-radius: 8px; line-height: 1.65; }

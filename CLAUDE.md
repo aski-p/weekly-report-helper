@@ -18,3 +18,7 @@
 - 템플릿의 기본키는 `(owner_id,id)`이며, 이전 전역 ID 기본키는 데이터 보존 후 자동 이전한다. 개인 자료 API의 `x-wr-account`는 실제 로그인 계정과 맞아야 한다.
 - 템플릿 직접 작성·AI 추출 후 저장 모두 DB 저장을 확인한 뒤 완료 처리한다.
 - 친구 목록은 `pgx/friends.js`에서 계정별 DB 저장하고 `friends` 이벤트를 같은 계정의 연결에만 보낸다. 채팅 서버의 `ops`에 `createFriendOperations({ query: q, notify: sendTo })`를 연결한다.
+
+- 화자 구분은 `pgx/speaker_diarization.py`를 PGX STT에 연결한다. Whisper 단어 시각과 음성 임베딩으로 회의별 A/B/C를 구분하며, 이름은 사용자가 지정한다. 구분하지 못한 발언은 미확인으로 두고 수정을 허용한다.
+- 회의의 `segments`, `speaker_names`, 암호화된 `speaker_state`를 함께 저장한다. 상태는 로그인 계정·회의별 세션에 묶으며, 다른 회의 상태를 재사용하지 않는다.
+- `shared/speakers.js`를 채팅 서버 `shared/`에 함께 복사한다. 인증 프록시는 STT의 `x-wr-speaker-state` 헤더를 전달해야 한다. 원본 음성은 계속 영구 저장하지 않는다.

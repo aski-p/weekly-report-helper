@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText, store } from '../api.js';
+import { appendSpeech } from '../../shared/speakers.js';
+import SpeakerTranscript from '../components/SpeakerTranscript.jsx';
 import SaveStatus from '../components/SaveStatus.jsx';
 import { toast } from '../components/Toast.jsx';
 import { blobToBase64, canRecord, fileToChunks, fmtClock, minutesText, todayISO, useMeetings, useRecorder } from '../meetings.js';
@@ -10,7 +12,7 @@ const titleOf = (m) => m.summary?.title || m.title || '제목 없는 회의';
 
 // weeks: 최신순 주차 목록 (주간보고 메모로 보내기용)
 export default function Meetings({ me, onReport }) {
-  const { list, create, update, remove, status, error, retry, flush } = useMeetings(me.employeeId);
+  const { list, create, update, remove, status, error, retry, flush, getRecord } = useMeetings(me.employeeId);
   const [selId, setSelId] = useState(() => store.get('wr.meetings.sel') || null);
   const [q, setQ] = useState('');
   const [period, setPeriod] = useState('all'); // all | week | month | day
@@ -29,11 +31,11 @@ export default function Meetings({ me, onReport }) {
     working.current = true;
     while (jobs.current.length) {
       const job = jobs.current[0];
-      let text = null, error = null;
-      for (let attempt = 0; attempt < 3 && text == null; attempt++) {
+      let result = null, error = null;
+      for (let attempt = 0; attempt < 3 && result == null; attempt++) {
         try {
-          const r = await api.transcribe(await blobToBase64(job.blob), job.blob.type);
-          text = r.text || '';
+          const meeting = getRecord(job.meetingId);
+          result = await api.transcribe(await blobToBase64(job.blob), job.blob.type, { meetingId: job.meetingId, speakerState: meeting?.speakerState || '', accountId: me.employeeId });
         } catch (e) {
           error = e;
           if (e.status && e.status < 500 && e.code !== 'STT_ERROR') break;
@@ -41,8 +43,8 @@ export default function Meetings({ me, onReport }) {
         }
       }
       jobs.current.shift();
-      if (text != null) {
-        if (text.trim()) update(job.meetingId, (m) => ({ transcript: `${m.transcript ? `${m.transcript.replace(/\s+$/, '')}\n` : ''}[${fmtClock(job.start)}] ${text.trim()}` }));
+      if (result != null) {
+        if (result.text?.trim() || result.segments?.length) update(job.meetingId, (m) => appendSpeech(m, result, job.start));
         setQueue((s) => ({ ...s, pending: jobs.current.length }));
       } else {
         setQueue((s) => ({ pending: jobs.current.length, failed: [...s.failed, job] }));
@@ -50,7 +52,7 @@ export default function Meetings({ me, onReport }) {
       }
     }
     working.current = false;
-  }, [update]);
+  }, [update, getRecord, me.employeeId]);
 
   const enqueue = useCallback((meetingId, chunk) => {
     jobs.current.push({ ...chunk, meetingId });
@@ -65,12 +67,12 @@ export default function Meetings({ me, onReport }) {
 
   // 녹음을 끝낸 뒤에 도착하는 마지막 조각도 그 회의로 가도록, 끝낼 때 비우지 않는다
   const recTarget = useRef(null);
-  const rec = useRecorder({ onChunk: (c) => recTarget.current && enqueue(recTarget.current, c) });
+  const rec = useRecorder({ onChunk: (c) => (c.meetingId || recTarget.current) && enqueue(c.meetingId || recTarget.current, c) });
 
   async function startRec(m) {
     try {
       recTarget.current = m.id;
-      await rec.start(m.durationSec || 0);
+      await rec.start(m.durationSec || 0, m.id);
       setRecId(m.id);
     } catch (e) {
       toast(e?.name === 'NotAllowedError' ? '마이크 사용을 허용해 주세요.' : '마이크를 열지 못했습니다.');
@@ -115,7 +117,7 @@ export default function Meetings({ me, onReport }) {
       if (period === 'month' && m.date.slice(0, 7) !== iso(now).slice(0, 7)) return false;
       if (period === 'day' && m.date !== day) return false;
       if (!ql) return true;
-      return [titleOf(m), m.attendees, m.notes, m.transcript, m.summary?.summary].some((t) => (t || '').toLowerCase().includes(ql));
+      return [titleOf(m), m.attendees, m.notes, m.transcript, m.summary?.summary, ...Object.values(m.speakerNames || {})].some((t) => (t || '').toLowerCase().includes(ql));
     }).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
     const map = new Map();
     for (const m of shown) { if (!map.has(m.date)) map.set(m.date, []); map.get(m.date).push(m); }
@@ -185,12 +187,8 @@ function MeetingDetail({ m, update, onReport, onBack, onDelete, rec, recId, onSt
   const [summarizing, setSummarizing] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef(null);
-  const tRef = useRef(null);
   const mine = recId === m.id;
   const busyElsewhere = recId && !mine;
-
-  // 새 글이 붙으면 녹취 칸 맨 아래로
-  useEffect(() => { if (mine && tRef.current) tRef.current.scrollTop = tRef.current.scrollHeight; }, [m.transcript, mine]);
 
   async function summarize() {
     if (!m.transcript.trim() && !m.notes.trim()) { setError('녹음하거나 메모를 적은 뒤 요약하세요.'); return; }
@@ -249,11 +247,7 @@ function MeetingDetail({ m, update, onReport, onBack, onDelete, rec, recId, onSt
       </div>
 
       <div className="item-fields mt-fields">
-        <label className="rfield">
-          <span className="rfield-label">녹취 <span className="count">{m.transcript.length.toLocaleString()}자</span></span>
-          <textarea ref={tRef} className="mt-transcript" value={m.transcript} onChange={set('transcript')} spellCheck={false}
-            placeholder="녹음을 시작하면 이 자리에 말한 내용이 쌓입니다. 잘못 알아들은 부분은 직접 고칠 수 있습니다." />
-        </label>
+        <SpeakerTranscript meeting={m} update={update} live={mine} />
         <label className="rfield">
           <span className="rfield-label">메모</span>
           <textarea className="mt-notes" value={m.notes} onChange={set('notes')} spellCheck={false} placeholder="회의 중 직접 적어 둘 것 (요약할 때 같이 참고합니다)" />

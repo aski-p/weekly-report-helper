@@ -1,5 +1,6 @@
 // Mounted by the private PGX server. Connections and ticket verification stay private.
 import { readFile } from 'node:fs/promises';
+import { transcriptText } from '../shared/speakers.js';
 const ID = /^[A-Za-z0-9_-]{4,40}$/;
 const invalid = (message, status = 400, code = 'BAD_REQUEST') => Object.assign(new Error(message), { status, code });
 const text = (v, max) => { if (typeof v !== 'string' || v.length > max) throw invalid(`문자열은 ${max}자 이하로 입력하세요`); return v; };
@@ -17,6 +18,20 @@ export function cleanRecord(kind, t) {
     if (!v.name.trim()) throw invalid('양식 이름을 입력하세요');
     return { ...common, ...v, name: v.name.trim() };
   }
+  const speakerNames = {};
+  if (t.speakerNames != null && (typeof t.speakerNames !== 'object' || Array.isArray(t.speakerNames) || Object.keys(t.speakerNames).length > 100)) throw invalid('화자 이름 목록이 올바르지 않습니다');
+  for (const [id, name] of Object.entries(t.speakerNames || {})) {
+    if (!/^[A-Z]{1,2}$/.test(id)) throw invalid('화자는 A, B와 같은 알파벳으로 지정하세요');
+    speakerNames[id] = text(name, 80).trim();
+  }
+  if (t.segments != null && (!Array.isArray(t.segments) || t.segments.length > 5000)) throw invalid('발언 목록이 올바르지 않습니다');
+  const segments = (t.segments || []).map((s) => {
+    if (!s || !ID.test(s.id || '') || !Number.isFinite(s.start) || !Number.isFinite(s.end) || s.start < 0 || s.end < s.start || s.end > 31536000 || (s.speaker !== '' && !/^[A-Z]{1,2}$/.test(s.speaker))) throw invalid('발언의 시각 또는 화자가 올바르지 않습니다');
+    return { id: s.id, start: s.start, end: s.end, speaker: s.speaker, text: text(s.text, 200000) };
+  });
+  const transcript = segments.length ? text(transcriptText({ segments }, false), 200000) : optional(t.transcript, 200000);
+  const speakerState = optional(t.speakerState, 64000);
+  if (!/^[A-Za-z0-9_=\-]*$/.test(speakerState)) throw invalid('화자 연속 정보가 올바르지 않습니다');
   const durationSec = Number(t.durationSec ?? 0);
   if (!Number.isInteger(durationSec) || durationSec < 0 || durationSec > 31536000) throw invalid('녹음 시간이 올바르지 않습니다');
   let summary = null;
@@ -30,17 +45,17 @@ export function cleanRecord(kind, t) {
       decisions: strings(s.decisions), topics: (s.topics || []).map((x) => ({ topic: optional(x?.topic, 500), points: strings(x?.points) })),
       actionItems: (s.actionItems || []).map((x) => ({ task: optional(x?.task, 4000), owner: optional(x?.owner, 200), due: optional(x?.due, 200) })), at: Number(s.at) || 0 };
   }
-  return { ...common, date: date(t.date), title: optional(t.title, 200), attendees: optional(t.attendees, 2000), notes: optional(t.notes, 30000), transcript: optional(t.transcript, 200000), durationSec, summary };
+  return { ...common, date: date(t.date), title: optional(t.title, 200), attendees: optional(t.attendees, 2000), notes: optional(t.notes, 30000), transcript, durationSec, summary, segments, speakerNames, speakerState };
 }
 const row = (kind, r) => kind === 'templates'
   ? { id: r.id, name: r.name, thisWeek: r.this_week, nextWeek: r.next_week, issue: r.issue, style: r.style, origin: r.origin, createdAt: +new Date(r.created_at), updatedAt: +new Date(r.updated_at) }
-  : { id: r.id, date: r.date, title: r.title, attendees: r.attendees, notes: r.notes, transcript: r.transcript, durationSec: r.duration_sec, summary: r.summary, createdAt: +new Date(r.created_at), updatedAt: +new Date(r.updated_at) };
+  : { id: r.id, date: r.date, title: r.title, attendees: r.attendees, notes: r.notes, transcript: r.transcript, durationSec: r.duration_sec, summary: r.summary, segments: r.segments || [], speakerNames: r.speaker_names || {}, speakerState: r.speaker_state || '', createdAt: +new Date(r.created_at), updatedAt: +new Date(r.updated_at) };
 export const ensureDataTables = async (pool) => pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'));
 async function bodyOf(req) {
   let size = 0; const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 1200000) throw invalid('저장할 내용이 너무 큽니다', 413);
+    if (size > 3500000) throw invalid('저장할 내용이 너무 큽니다', 413);
     chunks.push(chunk);
   }
   try { return chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {}; } catch { throw invalid('JSON 형식이 올바르지 않습니다'); }
@@ -105,10 +120,10 @@ export function createDataApi({ pool, verifyTicket }) {
           // Old local records never overwrite a copy already saved on another device.
           if (batch && exists.rowCount) continue;
           if (isMeeting) {
-            const r = await client.query(`INSERT INTO meetings (owner_id,id,meeting_date,title,attendees,notes,transcript,duration_sec,summary,created_at)
-              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-              ON CONFLICT (owner_id,id) DO UPDATE SET meeting_date=$3,title=$4,attendees=$5,notes=$6,transcript=$7,duration_sec=$8,summary=$9,updated_at=now()
-              RETURNING *,to_char(meeting_date,'YYYY-MM-DD') AS date`, [owner,t.id,t.date,t.title,t.attendees,t.notes,t.transcript,t.durationSec,t.summary,t.createdAt]);
+            const r = await client.query(`INSERT INTO meetings (owner_id,id,meeting_date,title,attendees,notes,transcript,duration_sec,summary,created_at,segments,speaker_names,speaker_state)
+              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+              ON CONFLICT (owner_id,id) DO UPDATE SET meeting_date=$3,title=$4,attendees=$5,notes=$6,transcript=$7,duration_sec=$8,summary=$9,segments=$11,speaker_names=$12,speaker_state=$13,updated_at=now()
+              RETURNING *,to_char(meeting_date,'YYYY-MM-DD') AS date`, [owner,t.id,t.date,t.title,t.attendees,t.notes,t.transcript,t.durationSec,t.summary,t.createdAt,JSON.stringify(t.segments),JSON.stringify(t.speakerNames),t.speakerState]);
             saved.push(row(kind, r.rows[0]));
           } else {
             const r = await client.query(`INSERT INTO templates (owner_id,id,name,this_week,next_week,issue,style,origin,created_at)
