@@ -1,3 +1,4 @@
+import { reportItemVersion } from '../shared/report-items.js';
 // 서버(/api) 호출 + 토큰 보관 + 비밀번호 브라우저 암호화
 const TOKEN_KEY = 'wr.token';
 
@@ -105,7 +106,8 @@ export const api = {
   context: (year, week) => request('GET', '/context', { query: { year, week } }),
   works: (q) => request('GET', '/works', { query: { q } }),
   draft: (year, week, memo, { template, fromLastWeek } = {}) => request('POST', '/draft', { body: { year, week, memo, template, fromLastWeek } }),
-  commit: (year, week, items, dryRun = false) => request('POST', '/commit', { body: { year, week, items, dryRun } }),
+  deleteReportItem: (year,week,item,accountId) => request('POST','/report-items/delete',{accountId,body:{year,week,itemId:item.weeklyReportItemId,version:reportItemVersion(item)}}),
+  commit: (year, week, items, dryRun = false, accountId) => request('POST', '/commit', { accountId, body: { year, week, items, dryRun } }),
 };
 
 export const ERROR_TEXT = {

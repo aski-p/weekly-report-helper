@@ -619,3 +619,8 @@ html[data-serif] body { letter-spacing: -0.005em; }
 .transcript-speaker { color:var(--ink-2);font-size:13px; }
 .meeting-return { position:fixed;bottom:max(16px,env(safe-area-inset-bottom));left:16px;z-index:45;box-shadow:0 3px 18px #0002;background:var(--sheet); }
 .mt-sheet { padding-bottom:72px; }
+
+.report-item-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.report-registration .field { display:block; margin-top:16px; }
+.report-registration .field textarea { display:block; width:100%; margin-top:6px; }
+.report-registration-preview { white-space:pre-wrap; overflow-wrap:anywhere; }

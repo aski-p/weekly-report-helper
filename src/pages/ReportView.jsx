@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText, store } from '../api.js';
 import { toast } from '../components/Toast.jsx';
+import ReportRegistration from '../components/ReportRegistration.jsx';
+import { canDeleteReportItem, sharedReportItem, reportClosed } from '../../shared/report-items.js';
 import SaveTemplateDialog from '../components/SaveTemplateDialog.jsx';
 import { itemByWriter, asTemplateSource } from '../sections.js';
 import { parseWriterHeader } from '../../lib/writer-header.js';
@@ -34,12 +36,14 @@ const SORTS = {
   recent: { label: '최근 수정', fn: (a, b) => new Date(updatedOf(b) || 0) - new Date(updatedOf(a) || 0) },
 };
 
-export default function ReportView({ me, weeks, sel, setSel }) {
+export default function ReportView({ me, weeks, sel, setSel, onReportChanged }) {
   const [report, setReport] = useState(undefined); // undefined=불러오는 중, null=없음
   const [team, setTeam] = useState(() => store.get('wr.view.team') || '');
   const [sort, setSort] = useState(() => store.get('wr.view.sort') || 'report');
   const [byWriter, setByWriter] = useState(() => store.get('wr.view.byWriter') === '1');
   const [saving, setSaving] = useState(null); // SaveTemplateDialog source
+  const [registering,setRegistering]=useState(false),[deleting,setDeleting]=useState(null),[refresh,setRefresh]=useState(0);
+  const changed=()=>{store.set(`wr.approval.${me.employeeId}.${sel.year}-${sel.week}`,null);setRefresh(n=>n+1);onReportChanged?.();};
   const { addTemplate } = useTemplates(me.employeeId);
 
   useEffect(() => {
@@ -57,7 +61,7 @@ export default function ReportView({ me, weeks, sel, setSel }) {
     setReport(undefined);
     api.report(sel.year, sel.week).then((r) => live && setReport(r.report)).catch((e) => { if (live) { setReport(null); toast(errorText(e)); } });
     return () => { live = false; };
-  }, [sel?.year, sel?.week]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sel?.year, sel?.week, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 주차 이동 (weeks 는 최신순)
   const idx = weeks.findIndex((w) => sel && w.year === sel.year && w.week === sel.week);
@@ -73,7 +77,7 @@ export default function ReportView({ me, weeks, sel, setSel }) {
 
   const items = useMemo(() => (report?.items || []).map((i, n) => ({ ...i, _i: n })), [report]);
   const teams = useMemo(() => [...new Set(items.map((i) => i.ownerTeamName).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko')), [items]);
-  const shown = useMemo(() => items.filter((i) => !team || i.ownerTeamName === team).sort(SORTS[sort].fn), [items, team, sort]);
+  const shown = useMemo(() => items.filter((i) => !team || i.ownerTeamName === team).sort((SORTS[sort]||SORTS.report).fn), [items, team, sort]);
 
   // 상태 줄
   const stats = useMemo(() => {
@@ -98,7 +102,7 @@ export default function ReportView({ me, weeks, sel, setSel }) {
       for (const s of itemByWriter(i)) {
         if (!map.has(s.name)) map.set(s.name, { name: s.name, title: s.title, entries: [] });
         if (!map.get(s.name).title && s.title) map.get(s.name).title = s.title;
-        map.get(s.name).entries.push({ ...s, workName: i.workName, team: i.ownerTeamName });
+        map.get(s.name).entries.push({ ...s, workName: i.workName, team: i.ownerTeamName, sourceItem:i });
       }
     }
     const isMe = (g) => g.name === me.employeeName;
@@ -119,6 +123,8 @@ export default function ReportView({ me, weeks, sel, setSel }) {
           </label>
         </div>
         <div className="view-tools">
+          <button className="btn seal small" disabled={!sel||report===undefined||reportClosed(report)} onClick={()=>setRegistering(true)}>+ 주간보고 등록</button>
+          <button className="btn ghost small" disabled={report===undefined} onClick={()=>setRefresh(n=>n+1)}>새로고침</button>
           <label className="mini-select">
             <span>팀</span>
             <select value={team} onChange={(e) => setTeam(e.target.value)}>
@@ -161,9 +167,11 @@ export default function ReportView({ me, weeks, sel, setSel }) {
                 {[i.ownerTeamName, (i.writers || []).map((w) => w.employeeName || w.name).filter(Boolean).join(', ') || '작성자 없음', updatedOf(i) && `수정 ${fmtTime(updatedOf(i))}`].filter(Boolean).join(' · ')}
               </p>
             </div>
+            <div className="report-item-actions">
+            {canDeleteReportItem(i,me)&&!reportClosed(report)&&!reportClosed(i)&&<button className="btn ghost small danger" onClick={()=>setDeleting(i)}>{sharedReportItem(i,me)?'내 구역 삭제':'삭제'}</button>}
             {filled(i) && (
               <button className="btn ghost small" onClick={() => setSaving({ text: asTemplateSource(i), workName: i.workName })}>양식으로 저장</button>
-            )}
+            )}</div>
           </header>
           {filled(i) ? <ItemBody item={i} me={me} onSaveSection={(s) => setSaving({ text: asTemplateSource(s), workName: i.workName, writer: s.name })} />
             : <p className="view-empty small">아직 작성된 내용이 없습니다.</p>}
@@ -182,6 +190,7 @@ export default function ReportView({ me, weeks, sel, setSel }) {
             <section key={n} className="writer-entry">
               <div className="writer-entry-head">
                 <h4>{e.workName}{e.team && <small> · {e.team}</small>}</h4>
+                {g.name===me.employeeName&&canDeleteReportItem(e.sourceItem,me)&&!reportClosed(report)&&!reportClosed(e.sourceItem)&&<button className="text-link danger" onClick={()=>setDeleting(e.sourceItem)}>내 보고 삭제</button>}
                 <button className="text-link" onClick={() => setSaving({ text: asTemplateSource(e), workName: e.workName, writer: g.name })}>이 구역을 양식으로</button>
               </div>
               <Fields value={e} />
@@ -190,6 +199,8 @@ export default function ReportView({ me, weeks, sel, setSel }) {
         </article>
       ))}
 
+      {registering&&<ReportRegistration me={me} week={sel} items={items} onClose={()=>setRegistering(false)} onSaved={()=>{setRegistering(false);changed();toast('주간보고를 등록했습니다.');}} />}
+      {deleting&&<DeleteReportDialog item={deleting} me={me} week={sel} onClose={()=>setDeleting(null)} onDeleted={()=>{setDeleting(null);changed();toast('주간보고 삭제를 반영했습니다.');}} />}
       {saving && (
         <SaveTemplateDialog source={saving} accountName={me.employeeName} onClose={() => setSaving(null)}
           onSave={async (t) => { await addTemplate(t); toast(`"${t.name}" 템플릿을 내 계정에 저장했습니다.`); }} />
@@ -226,4 +237,16 @@ function Fields({ value }) {
       ) : null)}
     </div>
   );
+}
+
+function DeleteReportDialog({item,me,week,onClose,onDeleted}) {
+  const ref=useRef(null);const [busy,setBusy]=useState(false),[error,setError]=useState('');
+  useEffect(()=>{ref.current.showModal();},[]);
+  async function remove(){setBusy(true);setError('');try{await api.deleteReportItem(week.year,week.week,item,me.employeeId);onDeleted();}catch(e){setError(errorText(e));}finally{setBusy(false);}}
+  const shared=sharedReportItem(item,me);
+  return <dialog ref={ref} className="confirm" aria-labelledby="delete-report-title" onClose={onClose} onCancel={e=>{if(busy)e.preventDefault();}}>
+    <header className="confirm-head"><h3 id="delete-report-title">{shared?'내 보고 구역을 삭제할까요?':'주간보고 항목을 삭제할까요?'}</h3><p>{week.year}년 {week.week}주차 · {item.workName}</p></header>
+    <div className="confirm-body"><p>{shared?'이 공동 항목에서 내가 작성한 구역을 삭제합니다. 다른 작성자의 내용은 유지됩니다.':'이 항목을 본부 보고서에서 삭제합니다. 삭제 후 복구할 수 없습니다.'}</p>{error&&<p className="form-error" role="alert">{error}</p>}</div>
+    <footer className="confirm-foot"><button className="btn ghost" disabled={busy} onClick={()=>ref.current.close()}>취소</button><button className="btn ghost danger" disabled={busy} onClick={remove}>{busy?'삭제 중…':shared?'내 구역 삭제':'삭제'}</button></footer>
+  </dialog>;
 }

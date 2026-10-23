@@ -122,6 +122,7 @@ http.createServer((req, res) => {
       const item = rep(m[1])?.items.find((i) => i.weeklyReportItemId === +m[2]);
       if (!item) return err(res, 404, 'NOT_FOUND', 'item');
       if (m[3]) return send(res, 204);
+      if(req.method==='DELETE'){const r=rep(m[1]);r.items=r.items.filter(i=>i!==item);return send(res,204);}
       if (req.method === 'PUT') {
         Object.assign(item, { thisWeek: body.thisWeek, nextWeek: body.nextWeek, issue: body.issue, updatedAt: new Date().toISOString() });
         if (!item.writers.some((w) => w.employeeId === ME.employeeId)) item.writers.push(writer(ME.employeeId));

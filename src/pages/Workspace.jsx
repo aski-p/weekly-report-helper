@@ -265,7 +265,7 @@ export default function Workspace({ me, onLogout, onInstall }) {
       )}
 
       <div className="connection-bar"><SyncStatus /><AIConnection accountId={me.employeeId} /></div>
-      {view === 'view' && <ReportView me={me} weeks={weeks} sel={sel} setSel={setSel} />}
+      {view === 'view' && <ReportView me={me} weeks={weeks} sel={sel} setSel={setSel} onReportChanged={()=>{setApproval(null);api.context(sel.year,sel.week).then(setCtx).catch(()=>{});}} />}
       {view === 'templates' && <Templates me={me} running={autoRunning} onRunNow={runNow} />}
       {/* 녹음이 탭을 옮겨도 이어지도록 회의록 화면은 늘 붙여 둔다 */}
       <div className="mt-wrap" hidden={view !== 'meetings'}><Meetings me={me} onReport={(date) => {
