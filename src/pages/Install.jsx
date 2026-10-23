@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import QRCode from 'qrcode';
 import { canPrompt, isStandalone, platform, promptInstall, subscribe } from '../install.js';
 
-const APK_URL = import.meta.env.VITE_APK_URL || '';
+const APK_URL = import.meta.env.VITE_APK_URL || '/download/weekly-report.apk';
 
 const GUIDES = {
   android: {

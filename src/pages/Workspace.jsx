@@ -3,6 +3,15 @@ import { api, errorText, store } from '../api.js';
 import { toast } from '../components/Toast.jsx';
 import WorkPicker from '../components/WorkPicker.jsx';
 import ApprovalBox from '../components/ApprovalBox.jsx';
+import ReportView from './ReportView.jsx';
+import SkinPicker from '../components/SkinPicker.jsx';
+import Templates from './Templates.jsx';
+import Meetings from './Meetings.jsx';
+import ChatWidget from './Chat.jsx';
+import { chat, roomTitle, useTotalUnread } from '../chat.js';
+import { notify } from '../useAutomation.js';
+import { useTemplates } from '../templates.js';
+import { useAutomation } from '../useAutomation.js';
 
 const FIELD_MAX = 4000;
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -14,10 +23,27 @@ export default function Workspace({ me, onLogout, onInstall }) {
   const [sel, setSel] = useState(null); // { year, week }
   const [ctx, setCtx] = useState(null);
   const [tab, setTab] = useState('memo'); // 모바일 전용
+  const [view, setViewRaw] = useState(() => { const v = store.get('wr.view'); return ['write', 'view', 'meetings', 'templates'].includes(v) ? v : 'write'; }); // write | view | templates
+  const setView = (v) => { setViewRaw(v); store.set('wr.view', v); scrollTo(0, 0); };
 
-  // 주차 목록
+  // 채팅: 로그인해 있는 동안 늘 연결 (다른 화면에서도 새 메시지를 알 수 있게)
+  useEffect(() => { chat.start(); }, []);
+  const chatUnread = useTotalUnread();
+  useEffect(() => chat.onMessage((m) => {
+    const s = chat.get();
+    if (!s.me || m.senderId === s.me.id || m.kind !== 'text') return;
+    if (!document.hidden && chat.viewing === m.roomId) return; // 지금 보고 있는 방
+    const room = s.rooms.find((r) => r.id === m.roomId);
+    const who = s.users[m.senderId]?.name || '새 메시지';
+    const where = room?.kind === 'group' ? ` · ${roomTitle(room, s)}` : '';
+    if (document.hidden) notify(`${who}${where}`, m.body.slice(0, 120), `wr-chat-${m.roomId}`);
+    else if (store.get('wr.chat.open') !== '1') toast(`${who}: ${m.body.slice(0, 40)}`);
+  }), []);
+  useEffect(() => { document.title = chatUnread ? `(${chatUnread}) 주간보고 도우미` : '주간보고 도우미'; }, [chatUnread]);
+
+  // 주차 목록 (조회 화면 날짜 선택용으로 1년치)
   useEffect(() => {
-    api.weeks().then((ws) => {
+    api.weeks(52).then((ws) => {
       const sorted = [...ws].sort((a, b) => (b.year - a.year) || (b.week - a.week));
       setWeeks(sorted);
       const cur = sorted.find((w) => w.isCurrent) || sorted[0];
@@ -41,6 +67,13 @@ export default function Workspace({ me, onLogout, onInstall }) {
     api.context(sel.year, sel.week).then(setCtx).catch((e) => toast(errorText(e)));
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 회의록에서 메모에 한 줄을 넣으면 다시 읽는다
+  useEffect(() => {
+    const on = (e) => { if (key && e.detail === `wr.memo.${key}`) setMemo(store.get(`wr.memo.${key}`) || ''); };
+    addEventListener('wr:memo', on);
+    return () => removeEventListener('wr:memo', on);
+  }, [key]);
+
   const [savedAt, setSavedAt] = useState(null);
   useEffect(() => {
     if (!key) return;
@@ -50,6 +83,12 @@ export default function Workspace({ me, onLogout, onInstall }) {
   useEffect(() => { if (key) store.set(`wr.draft.${key}`, draft ? JSON.stringify(draft) : null); }, [draft, key]);
   useEffect(() => { if (key) store.set(`wr.approval.${key}`, approval ? JSON.stringify(approval) : null); }, [approval, key]);
 
+  // 양식
+  const { templates } = useTemplates(me.employeeId);
+  const [tplId, setTplIdRaw] = useState(() => store.get(`wr.writeTpl.${me.employeeId}`) || '');
+  const setTplId = (v) => { setTplIdRaw(v); store.set(`wr.writeTpl.${me.employeeId}`, v || null); };
+  const template = templates.find((t) => t.id === tplId) || null;
+
   // AI 정리
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState('');
@@ -57,17 +96,59 @@ export default function Workspace({ me, onLogout, onInstall }) {
     if (!memo.trim()) { setDraftError('메모를 먼저 적어 주세요.'); return; }
     setDrafting(true); setDraftError(''); setTab('report');
     try {
-      const r = await api.draft(sel.year, sel.week, memo);
-      setDraft({ items: r.items.map((i) => ({ ...i, id: uid() })), questions: r.questions || [], at: Date.now() });
+      const r = await api.draft(sel.year, sel.week, memo, { template });
+      const questions = r.questions || [];
+      if (!r.items.length) {
+        // 정리할 업무를 못 찾았으면 쓰던 초안은 그대로 두고 AI 가 물어본 것만 보여 준다
+        setDraft((d) => ({ items: [], ...(d || {}), questions, at: Date.now() }));
+        if (questions.length) toast('메모만으로는 정리하기 어렵습니다. "확인해 주세요"를 보고 메모를 보충해 주세요.');
+        else setDraftError('메모에서 보고할 업무를 찾지 못했습니다. 한 일을 조금 더 구체적으로 적어 보세요.');
+        return;
+      }
+      setDraft({ items: r.items.map((i) => ({ ...i, id: uid() })), questions, at: Date.now() });
       setApproval(null);
-      if (!r.items.length) setDraftError('메모에서 보고할 업무를 찾지 못했습니다. 한 일을 조금 더 구체적으로 적어 보세요.');
     } catch (e) {
       setDraftError(errorText(e, '정리하지 못했습니다.'));
       setTab('memo');
     } finally {
       setDrafting(false);
     }
-  }, [memo, sel]);
+  }, [memo, sel, template]);
+
+  // 지난주 끌어오기: 지난주 내 항목의 차주 계획을 이번 주 실적 자리에 (이미 있는 업무는 건너뜀)
+  const [pulling, setPulling] = useState(false);
+  async function pullLastWeek() {
+    setPulling(true);
+    try {
+      const { items: last } = await api.lastWeek(sel.year, sel.week);
+      if (!last.length) { toast('지난주에 내가 쓴 항목이 없습니다.'); return; }
+      const keyOf = (i) => (i.workKindCode === 'G' ? `G:${i.workName}` : i.workId);
+      const have = new Set((draft?.items || []).map(keyOf));
+      const add = last.filter((i) => !have.has(keyOf(i))).map(({ lastWeek, ...i }) => ({ ...i, id: uid() }));
+      if (!add.length) { toast('지난주 항목이 이미 모두 들어 있습니다.'); return; }
+      setDraft((d) => ({ questions: [], ...(d || {}), items: [...(d?.items || []), ...add], at: Date.now() }));
+      setApproval(null);
+      setTab('report');
+      toast(`지난주 항목 ${add.length}건을 가져왔습니다. 차주 계획을 금주 실적 자리에 옮겨 두었으니 다듬어 주세요.`);
+    } catch (e) {
+      toast(errorText(e, '지난주 기록을 가져오지 못했습니다.'));
+    } finally {
+      setPulling(false);
+    }
+  }
+
+  // 자동화: 초안이 준비되면 작성 화면에 띄운다
+  const [autoNotice, setAutoNotice] = useState(null); // { year, week, count, error }
+  const { running: autoRunning, runNow } = useAutomation(me, weeks, (wk, d, error, message) => {
+    setAutoNotice({ ...wk, count: d?.items.length || 0, error, message, open: !!d });
+    if (d && !message && sel && wk.year === sel.year && wk.week === sel.week) { setDraft(d); setApproval(null); }
+  });
+  const openAutoDraft = () => {
+    const wk = autoNotice;
+    setAutoNotice(null);
+    if (!sel || wk.year !== sel.year || wk.week !== sel.week) setSel({ year: wk.year, week: wk.week });
+    setView('write'); setTab('report');
+  };
 
   const items = draft?.items || [];
   const edit = (id, patch) => {
@@ -132,10 +213,15 @@ export default function Workspace({ me, onLogout, onInstall }) {
           <img src="/icons/icon-192.png" alt="" width="28" height="28" />
           <span>주간보고 도우미</span>
         </div>
-        <label className="week-select">
+        <nav className="ws-views" aria-label="화면">
+          {[['write', '작성'], ['view', '조회'], ['meetings', '회의록'], ['templates', '양식·자동화']].map(([k, l]) => (
+            <button key={k} aria-current={view === k ? 'page' : undefined} onClick={() => setView(k)}>{l}</button>
+          ))}
+        </nav>
+        <label className="week-select" hidden={view !== 'write'}>
           <span className="sr-only">보고 주차</span>
           <select value={sel ? `${sel.year}-${sel.week}` : ''} onChange={(e) => { const [y, w] = e.target.value.split('-').map(Number); setSel({ year: y, week: w }); }}>
-            {weeks.map((w) => (
+            {weeks.filter((w, i) => i < 9 || (sel && w.year === sel.year && w.week === sel.week)).map((w) => (
               <option key={`${w.year}-${w.week}`} value={`${w.year}-${w.week}`}>
                 {w.year}년 {w.week}주차 ({fmtRange(w)}){w.isCurrent ? ' 이번 주' : ''}
               </option>
@@ -143,12 +229,28 @@ export default function Workspace({ me, onLogout, onInstall }) {
           </select>
         </label>
         <div className="ws-user">
+          <SkinPicker />
           <span>{me.employeeName} {me.gradeName}</span>
           <button className="text-link" onClick={onInstall}>앱 설치</button>
           <button className="text-link" onClick={onLogout}>로그아웃</button>
         </div>
       </header>
 
+      {autoNotice && (
+        <div className={`auto-banner${autoNotice.error ? ' fail' : ''}`} role="status">
+          <span>{autoNotice.error ? `자동 작성 실패: ${autoNotice.error}` : autoNotice.message || `자동화가 ${autoNotice.week}주차 초안 ${autoNotice.count}건을 만들었습니다. 확인하고 승인하면 게시됩니다.`}</span>
+          {autoNotice.open && <button className="btn small" onClick={openAutoDraft}>확인하기</button>}
+          <button className="icon-btn" onClick={() => setAutoNotice(null)} aria-label="닫기">×</button>
+        </div>
+      )}
+
+      {view === 'view' && <ReportView me={me} weeks={weeks} sel={sel} setSel={setSel} />}
+      {view === 'templates' && <Templates me={me} running={autoRunning} onRunNow={runNow} />}
+      {/* 녹음이 탭을 옮겨도 이어지도록 회의록 화면은 늘 붙여 둔다 */}
+      <div className="mt-wrap" hidden={view !== 'meetings'}><Meetings me={me} weeks={weeks} /></div>
+      <ChatWidget />
+
+      <div className="write-view" hidden={view !== 'write'}>
       <nav className="ws-tabs" aria-label="화면 전환">
         <button aria-pressed={tab === 'memo'} onClick={() => setTab('memo')}>메모</button>
         <button aria-pressed={tab === 'report'} onClick={() => setTab('report')}>
@@ -180,6 +282,17 @@ export default function Workspace({ me, onLogout, onInstall }) {
                   + (ctx.lastWeekCount ? `, 지난주 내 기록 ${ctx.lastWeekCount}건도 이어서 씁니다.` : '.')}
             </p>
             {ctx && !ctx.aiReady && <p className="warn-line">AI 키가 설정되지 않아 정리 기능을 쓸 수 없습니다.</p>}
+            <div className="write-tools">
+              <label className="mini-select">
+                <span>양식</span>
+                <select value={template ? tplId : ''} onChange={(e) => setTplId(e.target.value)}>
+                  <option value="">본부 보고 형식 따라가기</option>
+                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </label>
+              <button className="btn ghost small" onClick={pullLastWeek} disabled={pulling || !sel}>{pulling ? '가져오는 중…' : '지난주 끌어오기'}</button>
+            </div>
+            {!templates.length && <p className="kbd-hint left">조회 화면에서 마음에 드는 글을 <b>양식으로 저장</b>하면 여기서 고를 수 있습니다.</p>}
             {draftError && <p className="form-error" role="alert">{draftError}</p>}
             <button className="btn primary block" onClick={runDraft} disabled={drafting || !sel}>
               {drafting ? '정리하는 중…' : items.length ? '메모로 다시 정리하기' : '보고서로 정리하기'}
@@ -201,6 +314,8 @@ export default function Workspace({ me, onLogout, onInstall }) {
               </div>
               <ApprovalBox writer={me.employeeName} approval={approval} />
             </header>
+
+            {draft?.auto && <p className="item-note">자동화가 "{draft.auto.template}" 양식으로 만든 초안입니다. 고칠 곳을 고친 뒤 승인하세요.</p>}
 
             {draft?.questions?.length > 0 && (
               <aside className="questions">
@@ -253,6 +368,8 @@ export default function Workspace({ me, onLogout, onInstall }) {
             </div>
           )}
         </section>
+      </div>
+
       </div>
 
       {confirm && <ConfirmDialog results={confirm} busy={committing} onApprove={approve} onClose={() => !committing && setConfirm(null)} />}

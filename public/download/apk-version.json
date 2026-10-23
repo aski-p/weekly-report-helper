@@ -1,0 +1,10 @@
+{
+  "versionCode": 3,
+  "versionName": "1.2.0",
+  "url": "/download/weekly-report.apk",
+  "sha256": "382c5b80d4438e9c36e24f8636f0d69c57841c83a8a3b1cd92b97fea045e6b82",
+  "size": 124401,
+  "notes": "앱이 켜질 때 새 버전을 확인해 업데이트를 묻습니다.",
+  "sourceHash": "7c6d5dbf05dd0939",
+  "builtAt": "2026-10-23T02:15:16.315Z"
+}

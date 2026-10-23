@@ -24,5 +24,8 @@ export function platform() {
   return { os: 'desktop' };
 }
 
+// 안드로이드 APK(WebView 래퍼)는 UA 에 WeeklyReportApp 을 붙인다
+export const isApkApp = () => /WeeklyReportApp\//.test(navigator.userAgent);
+
 export const isStandalone = () =>
-  matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || isApkApp();

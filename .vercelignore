@@ -1,0 +1,8 @@
+server.js
+dev/
+test/
+.claude/
+dist/
+.env*
+CLAUDE.md
+scripts/

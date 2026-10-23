@@ -5,6 +5,8 @@ import Login from './pages/Login.jsx';
 import Workspace from './pages/Workspace.jsx';
 import Install from './pages/Install.jsx';
 import { ToastHost, toast } from './components/Toast.jsx';
+import { chat } from './chat.js';
+import { isRecording } from './meetings.js';
 
 // 아주 작은 라우터: '/' 작성, '/install' 설치 안내
 function usePath() {
@@ -24,11 +26,42 @@ export default function App() {
   const [booting, setBooting] = useState(hasToken());
   const [update, setUpdate] = useState(null);
 
+  // 새 버전은 서비스 워커가 받자마자 바로 넘겨받는다(skipWaiting).
+  // 화면은 앱을 다시 열거나 다른 앱에서 돌아올 때 새로 불러온다. 녹음 중이면 끝날 때까지 미룬다.
   useEffect(() => {
-    const updateSW = registerSW({ onNeedRefresh: () => setUpdate(() => () => updateSW(true)) });
+    const sw = navigator.serviceWorker;
+    if (!sw) return;
+    let pending = false;
+    const hadController = !!sw.controller;
+    const reload = () => { if (pending && !isRecording()) location.reload(); };
+    const onChange = () => {
+      if (!hadController) return; // 첫 설치
+      pending = true;
+      setUpdate(() => () => { if (isRecording()) toast('녹음이 끝나면 업데이트하세요.'); else location.reload(); });
+    };
+    let check = () => {};
+    const onVisible = () => {
+      if (document.hidden) return;
+      reload();
+      check();
+    };
+    sw.addEventListener('controllerchange', onChange);
+    document.addEventListener('visibilitychange', onVisible);
+    registerSW({
+      immediate: true,
+      onRegisteredSW(_url, reg) {
+        if (!reg) return;
+        check = () => reg.update().catch(() => {});
+        setInterval(check, 30 * 60_000);
+      },
+    });
+    return () => {
+      sw.removeEventListener('controllerchange', onChange);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
-  useEffect(() => onUnauthorized(() => { setMe(null); toast('로그인이 만료되었습니다. 다시 로그인하세요.'); }), []);
+  useEffect(() => onUnauthorized(() => { chat.stop(); setMe(null); toast('로그인이 만료되었습니다. 다시 로그인하세요.'); }), []);
 
   useEffect(() => {
     if (!hasToken()) return;
@@ -39,7 +72,7 @@ export default function App() {
   if (path.startsWith('/install')) page = <Install onBack={() => go('/')} />;
   else if (booting) page = <div className="boot" aria-busy="true" />;
   else if (!me) page = <Login onLogin={setMe} onInstall={() => go('/install')} />;
-  else page = <Workspace me={me} onLogout={async () => { await api.logout().catch(() => {}); setMe(null); }} onInstall={() => go('/install')} />;
+  else page = <Workspace me={me} onLogout={async () => { chat.stop(); await api.logout().catch(() => {}); setMe(null); }} onInstall={() => go('/install')} />;
 
   return (
     <>

@@ -61,10 +61,17 @@ export const api = {
   },
   async logout() { try { await request('POST', '/logout'); } finally { setToken(null); } },
   me: () => request('GET', '/me'),
-  weeks: () => request('GET', '/weeks'),
+  weeks: (count) => request('GET', '/weeks', { query: { count } }),
+  report: (year, week) => request('GET', '/report', { query: { year, week } }),
+  lastWeek: (year, week) => request('GET', '/last-week', { query: { year, week } }),
+  chatTicket: () => request('GET', '/chat/ticket'),
+  meetingStatus: () => request('GET', '/meetings/status'),
+  transcribe: (audio, mime) => request('POST', '/meetings/transcribe', { body: { audio, mime, lang: 'ko' } }),
+  summarizeMeeting: (m) => request('POST', '/meetings/summarize', { body: { title: m.title, date: m.date, attendees: m.attendees, notes: m.notes, transcript: m.transcript } }),
+  extractTemplate: (text, workName, writer) => request('POST', '/templates/extract', { body: { text, workName, writer } }),
   context: (year, week) => request('GET', '/context', { query: { year, week } }),
   works: (q) => request('GET', '/works', { query: { q } }),
-  draft: (year, week, memo) => request('POST', '/draft', { body: { year, week, memo } }),
+  draft: (year, week, memo, { template, fromLastWeek } = {}) => request('POST', '/draft', { body: { year, week, memo, template, fromLastWeek } }),
   commit: (year, week, items, dryRun = false) => request('POST', '/commit', { body: { year, week, items, dryRun } }),
 };
 
@@ -75,5 +82,6 @@ export const ERROR_TEXT = {
   AUTH_BLOCKED: '사용이 중지된 계정입니다. 관리자에게 문의하세요.',
   AUTH_MUST_CHANGE_PASSWORD: 'OneFinger 사이트에서 비밀번호를 먼저 변경한 뒤 로그인하세요.',
   NO_AI_KEY: 'AI 정리 기능이 아직 설정되지 않았습니다. 관리자에게 API 키 설정을 요청하세요.',
+  NO_STT: '음성 인식 서버가 설정되지 않았습니다. 관리자에게 문의하세요.',
 };
 export const errorText = (e, fallback = '요청을 처리하지 못했습니다.') => ERROR_TEXT[e?.code] || e?.message || fallback;

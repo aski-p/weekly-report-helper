@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, errorText } from '../api.js';
+import SkinPicker from '../components/SkinPicker.jsx';
 
 export default function Login({ onLogin, onInstall }) {
   const [employeeNo, setEmployeeNo] = useState('');
@@ -25,6 +26,7 @@ export default function Login({ onLogin, onInstall }) {
 
   return (
     <main className="login-page">
+      <div className="login-skin"><SkinPicker /></div>
       <form className="login-sheet" onSubmit={submit} noValidate>
         <img className="login-mark" src="/icons/icon-192.png" alt="" width="56" height="56" />
         <h1>주간보고 도우미</h1>
